@@ -22,3 +22,15 @@
 .feed-photo{flex:0 0 100%;scroll-snap-align:start;display:block}
 .feed-photo img{display:block;width:100%;height:240px;object-fit:cover;border-radius:10px}
 .gallery-hint{font-size:12px;color:var(--muted);margin-bottom:6px}
+
+/* Interactive voting controls */
+.feed-vote-actions{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:19px}
+.feed-vote-actions button{font:inherit;font-size:13px;font-weight:900;min-height:55px;padding:10px 12px;border:2px solid var(--ink);border-radius:9px;background:#f4f0e4;color:var(--ink);cursor:pointer;transition:background .15s,transform .15s}
+.feed-vote-actions button:hover:not(:disabled){transform:translateY(-2px);background:#f5d779}
+.feed-vote-actions button[aria-pressed="true"]{background:var(--yellow);box-shadow:inset 0 0 0 2px #bb7b2d}
+.feed-vote-actions button:disabled{cursor:wait;opacity:.68}
+.feed-vote-actions button:focus-visible{outline:3px solid #377bdb;outline-offset:3px}
+.feed-vote-feedback{font-size:13px;font-weight:700;color:#315b49;min-height:16px;margin:10px 0 0}
+.feed-vote-feedback:empty{display:none}
+.feed-vote-hint{font-size:11px;color:var(--muted);margin:7px 0 0}
+@media(max-width:480px){.feed-vote-actions{grid-template-columns:1fr}}
