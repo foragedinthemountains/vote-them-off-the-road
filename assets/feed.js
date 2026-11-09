@@ -121,24 +121,83 @@
       card.append(voteActions, voteFeedback, voteHint);
       const reportLink = element("a", "feed-report", "Report / request removal");
       reportLink.href = "/nh/report/?id=" + encodeURIComponent(item.id);
-      const share = element("button", "feed-share", "↗ Share this moment");
-      share.type = "button";
-      share.addEventListener("click", async () => {
-        const shareUrl = window.location.origin + "/nh/?incident=" + encodeURIComponent(item.id) + "#incidents";
+      // A prominent direct Facebook link plus platform choices.
+      // Only published incidents are in this feed; hidden incidents return 404 at the linked URL.
+      const shareUrl = window.location.origin + "/nh/?incident=" +
+        encodeURIComponent(item.id) + "#incidents";
+      const socialUrl = new URL(shareUrl);
+      socialUrl.hash = "";
+      const headline = item.title + " | Vote Them Off the Road";
+      const fbLink = element("a", "feed-share-facebook", "f  Share on Facebook");
+      fbLink.href = "https://www.facebook.com/sharer/sharer.php?u=" +
+        encodeURIComponent(socialUrl.href);
+      fbLink.target = "_blank";
+      fbLink.rel = "noopener noreferrer";
+      fbLink.setAttribute("aria-label", "Share this case on Facebook (opens in a new tab)");
+      const shareMenu = element("details", "feed-share-menu");
+      const toggle = element("summary", "", "↗ Share this case");
+      const options = element("div", "feed-share-options");
+      const x = element("a", "", "Post on X");
+      x.href = "https://x.com/intent/tweet?url=" +
+        encodeURIComponent(socialUrl.href) + "&text=" +
+        encodeURIComponent("What would you vote? " + item.title);
+      const reddit = element("a", "", "Post on Reddit");
+      reddit.href = "https://www.reddit.com/submit?url=" +
+        encodeURIComponent(socialUrl.href) + "&title=" + encodeURIComponent(headline);
+      const whatsapp = element("a", "", "Send via WhatsApp");
+      whatsapp.href = "https://wa.me/?text=" +
+        encodeURIComponent("What would you vote? " + item.title + " " + shareUrl);
+      for (const link of [x, reddit, whatsapp]) {
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+      }
+      const copy = element("button", "", "Copy case link");
+      copy.type = "button";
+      copy.addEventListener("click", async () => {
         try {
-          if (navigator.share) {
-            await navigator.share({ title: item.title, url: shareUrl });
-          } else {
+          if (navigator.clipboard?.writeText) {
             await navigator.clipboard.writeText(shareUrl);
-            share.textContent = "✓ Link copied";
+          } else {
+            const field = document.createElement("textarea");
+            field.value = shareUrl;
+            field.setAttribute("readonly", "");
+            field.style.position = "fixed";
+            field.style.opacity = "0";
+            document.body.append(field);
+            field.select();
+            const ok = document.execCommand("copy");
+            field.remove();
+            if (!ok) throw new Error("Browser denied clipboard access");
           }
-        } catch (error) {
-          if (error?.name !== "AbortError") {
-            share.textContent = "Share link: " + shareUrl;
-          }
+          copy.textContent = "✓ Link copied";
+        } catch {
+          copy.textContent = "Copy the URL in your address bar";
+          const text = element("input", "feed-share-link");
+          text.type = "text";
+          text.readOnly = true;
+          text.value = shareUrl;
+          options.append(text);
+          text.focus();
+          text.select();
         }
       });
-      card.append(share, reportLink);
+      options.append(x, reddit, whatsapp, copy);
+      if (typeof navigator.share === "function") {
+        const more = element("button", "", "More apps / messages");
+        more.type = "button";
+        more.addEventListener("click", async () => {
+          try {
+            await navigator.share({ title: headline, url: shareUrl });
+          } catch (error) {
+            if (error?.name !== "AbortError") more.textContent = "Sharing unavailable";
+          }
+        });
+        options.append(more);
+      }
+      shareMenu.append(toggle, options);
+      const shareRow = element("div", "feed-share-row");
+      shareRow.append(fbLink, shareMenu);
+      card.append(shareRow, reportLink);
       feed.append(card);
     }
   }
