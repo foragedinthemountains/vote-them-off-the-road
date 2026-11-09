@@ -1,0 +1,29 @@
+/* Public account and incident ownership controls. */
+.owner-layout{display:grid;grid-template-columns:minmax(0,1fr);gap:24px;max-width:970px}
+.owner-panel{background:#fffefa;border:2px solid #d9d1bd;border-radius:16px;padding:clamp(16px,3vw,30px);overflow-wrap:anywhere}
+.owner-panel h2{font-size:clamp(26px,4vw,40px);margin:0 0 12px}
+.owner-panel p{line-height:1.5}
+.owner-panel label{display:block;font-size:13px;font-weight:900;margin:16px 0 6px}
+.owner-panel input,.owner-panel select,.owner-panel textarea{font:inherit;width:100%;min-height:44px;border:1.5px solid #88958e;border-radius:8px;background:#fffefa;padding:11px;color:#1c312d}
+.owner-panel textarea{min-height:170px}
+.owner-panel button,.owner-panel .btn{max-width:100%;cursor:pointer}
+.owner-panel [hidden],.owner-confirmation[hidden]{display:none!important}
+.owner-panel .owner-hint{font-size:13px;color:#53635a}
+.owner-photos{display:flex;flex-wrap:wrap;gap:10px;margin:15px 0}
+.owner-photos img{height:85px;width:105px;object-fit:cover;border:1px solid #d2d7d1;border-radius:9px}
+.owner-danger{border-top:1px solid #ddd8cb;margin-top:24px;padding-top:18px}
+.owner-danger button{background:#fff0e7;border-color:#b54e30;color:#862c18}
+.owner-danger h3{font-size:24px;margin:0 0 7px}
+.owner-case{border:1px solid #d4d4c8;background:#faf8f1;border-radius:12px;margin:12px 0;padding:15px;display:flex;align-items:flex-start;flex-direction:column;gap:10px}
+.owner-case strong{font-size:18px}
+.owner-case p{margin:0}
+.owner-confirmation{background:#fef2d4;border:2px solid #c9a542;border-radius:14px;padding:18px;margin:18px 0}
+.owner-confirmation h3{font-size:24px;margin:0 0 10px}
+.owner-confirmation p{font-size:13px}
+.owner-confirmation input{font:inherit;padding:11px;width:100%;border:1px solid #8c866e;border-radius:8px;background:#fff}
+.owner-confirmation .btn{margin:9px 10px 9px 0}
+.owner-private-link{display:inline-flex;margin:9px 0 0;font-size:13px;font-weight:900;text-decoration:underline;color:#235548}
+#account-signin{min-height:70px}
+#account-user{margin:12px 0}
+#owner-status,#account-status{font-weight:700}
+@media(max-width:650px){.owner-layout{gap:15px}.owner-panel{padding:17px}}
