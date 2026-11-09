@@ -1166,7 +1166,8 @@ async function adminApi(request, env, path, identity) {
   if (path === "/admin/api/me" && request.method === "GET") {
     return json({ ok: true, email: identity.email,
       alerts_configured: Boolean(env.REPORT_ALERT_EMAIL && env.ADMIN_EMAIL),
-      enhanced: await featureSchemaReady(env), auto_hide_threshold: reportHideThreshold(env) });
+      enhanced: await featureSchemaReady(env), funny_enabled:await humorSchemaReady(env),
+      auto_hide_threshold: reportHideThreshold(env) });
   }
   if (path === "/admin/api/reports" && request.method === "GET") {
     const enhanced = await featureSchemaReady(env);
@@ -1195,12 +1196,14 @@ async function adminApi(request, env, path, identity) {
   }
   if (path === "/admin/api/incidents" && request.method === "GET") {
     const enhanced = await featureSchemaReady(env);
+    const vt=await activeVoteTable(env);
     const rows = await env.DB.prepare(`
       SELECT i.id, i.state_code, i.location_label, i.title, i.status,
         i.created_at, i.updated_at,
         ${enhanced ? "i.category, i.auto_hidden_at," : ""}
-        (SELECT COUNT(*) FROM votes v WHERE v.incident_id = i.id AND v.choice = 'off') AS off_votes,
-        (SELECT COUNT(*) FROM votes v WHERE v.incident_id = i.id AND v.choice = 'pass') AS pass_votes,
+        (SELECT COUNT(*) FROM ${vt} v WHERE v.incident_id = i.id AND v.choice = 'off') AS off_votes,
+        (SELECT COUNT(*) FROM ${vt} v WHERE v.incident_id = i.id AND v.choice = 'pass') AS pass_votes,
+        (SELECT COUNT(*) FROM ${vt} v WHERE v.incident_id = i.id AND v.choice = 'funny') AS funny_votes,
         (SELECT COUNT(*) FROM reports r WHERE r.incident_id = i.id AND r.status IN ('open', 'reviewing')) AS pending_reports
       FROM incidents i
       ORDER BY ${enhanced ? "CASE WHEN i.status='hidden' AND i.auto_hidden_at IS NOT NULL THEN 0 ELSE 1 END," : ""}
@@ -1230,6 +1233,18 @@ async function adminApi(request, env, path, identity) {
       if (body.value.confirm !== "DELETE " + id)
         return json({ error: "Explicit deletion confirmation is required" }, 400);
       return permanentlyDeleteIncident(env, id, identity);
+    }
+    if (typeof body.value.category === "string" && body.value.status === undefined) {
+      if (!(await featureSchemaReady(env))) return json({error:"Category editing requires migration 0002"},503);
+      const category=body.value.category;
+      if (!Object.hasOwn(behaviorCategories,category))
+        return json({error:"Invalid category"},400);
+      const updated=await env.DB.prepare(
+        "UPDATE incidents SET category=?, updated_at=unixepoch() WHERE id=?"
+      ).bind(category,id).run();
+      if (!updated.meta?.changes)return json({error:"Incident not found"},404);
+      console.log("Admin updated incident category",{email:identity.email,id,category});
+      return json({ok:true,id,category});
     }
     const state = body.value.status;
     if (!["published", "hidden", "removed"].includes(state)) {
@@ -1353,7 +1368,8 @@ export default {
         return withVoterCookie(request, json({ submissions_enabled: enabled,
           reports_enabled: enabled, photos_enabled: photosReady(env),
           voting_enabled: Boolean(env.DB && env.VOTE_RATE_LIMITER), max_photos: maxPhotos,
-          community_features_enabled: enhanced, auto_hide_report_threshold: reportHideThreshold(env),
+          community_features_enabled: enhanced, funny_enabled:await humorSchemaReady(env),
+          auto_hide_report_threshold: reportHideThreshold(env),
           category_labels: behaviorCategories,
           turnstile_site_key: enabled ? env.TURNSTILE_SITE_KEY : null }));
       }
