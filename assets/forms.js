@@ -34,7 +34,14 @@
           widgetId = window.turnstile.render("#turnstile-challenge", {
             sitekey: config.turnstile_site_key,
             action: mode === "report" ? "report" : "submit",
-            theme: "light"
+            theme: "light",
+            "error-callback": (code) => {
+              console.warn("Turnstile failed with code:", code);
+              message("Verification could not connect (Cloudflare code: " + String(code) + "). Try a private window or another network, then share this code.");
+            },
+            "unsupported-callback": () => {
+              message("Turnstile reports that this browser is not supported. Try Chrome, Firefox, or Edge.");
+            }
           });
           form.hidden = false;
           message("Ready when you are.");
