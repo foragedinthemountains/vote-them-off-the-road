@@ -256,6 +256,53 @@ async function weeklyBoard(env, offset=0) {
 }
 
 
+
+async function funniestWeekBoard(env, offset=0) {
+  const monday=easternWeekKey(offset);
+  const weekStart=easternMidnight(monday);
+  const weekEnd=easternMidnight(shiftDateKey(monday,7));
+  const minimum=weeklyMinimumVotes(env);
+  if (!(await humorSchemaReady(env)) || !(await featureSchemaReady(env))) {
+    return json({ready:false,week_start:weekStart,week_end:weekEnd,
+      podiums:[],minimum_votes:minimum});
+  }
+  let archived=false, podiums=[];
+  if(offset>0 && await gameSchemaReady(env)) {
+    archived=Boolean(await env.DB.prepare(
+      "SELECT 1 FROM weekly_snapshots WHERE week_start=?"
+    ).bind(weekStart).first());
+    if(archived) {
+      const rows=await env.DB.prepare(
+        "SELECT a.incident_id AS id,i.title,i.category,a.rank," +
+        "a.off_votes,a.pass_votes,a.funny_votes FROM weekly_funny_awards a " +
+        "JOIN incidents i ON i.id=a.incident_id " +
+        "WHERE a.week_start=? AND i.status='published' ORDER BY a.rank"
+      ).bind(weekStart).all();
+      podiums=(rows.results||[]).map(row=>({...row,qualified:true,
+        total_votes:Number(row.off_votes)+Number(row.pass_votes)+Number(row.funny_votes)}));
+    }
+  }
+  if(!archived) {
+    const result=await env.DB.prepare(
+      "SELECT i.id,i.title,i.category," +
+      "COUNT(CASE WHEN v.choice='off' THEN 1 END) AS off_votes," +
+      "COUNT(CASE WHEN v.choice='pass' THEN 1 END) AS pass_votes," +
+      "COUNT(CASE WHEN v.choice='funny' THEN 1 END) AS funny_votes " +
+      "FROM incidents i LEFT JOIN votes_v4 v ON v.incident_id=i.id " +
+      "WHERE i.state_code='NH' AND i.status='published' AND i.created_at>=? AND i.created_at<? " +
+      "GROUP BY i.id HAVING funny_votes>0 " +
+      "ORDER BY funny_votes DESC,COUNT(v.incident_id) DESC,i.created_at DESC LIMIT 3"
+    ).bind(weekStart,weekEnd).all();
+    podiums=(result.results||[]).map((row,index)=>{
+      const total=Number(row.funny_votes)+Number(row.off_votes)+Number(row.pass_votes);
+      return {...row,rank:index+1,total_votes:total,
+        qualified:total>=minimum && Number(row.funny_votes)>Number(row.off_votes)+Number(row.pass_votes)};
+    });
+  }
+  return json({ready:true,week_start:weekStart,week_end:weekEnd,
+    minimum_votes:minimum,archived,history_offset:offset,podiums});
+}
+
 async function snapshotPreviousWeek(env, scheduledAt = Date.now()) {
   if (!(await featureSchemaReady(env)) || !(await gameSchemaReady(env))) return;
   const d=new Date(scheduledAt);
@@ -1375,6 +1422,12 @@ export default {
       }
       if (pathname === "/api/featured-case" && request.method === "GET")
         return withVoterCookie(request,await featuredCase(request,env));
+      if (pathname === "/api/weekly-funniest" && request.method === "GET") {
+        const offset=Number(url.searchParams.get("offset") || "0");
+        if (!Number.isSafeInteger(offset) || offset<0 || offset>12)
+          return json({error:"Invalid week offset"},400);
+        return funniestWeekBoard(env,offset);
+      }
       if (pathname === "/api/weekly-board" && request.method === "GET") {
         const offset=Number(url.searchParams.get("offset") || "0");
         if (!Number.isSafeInteger(offset) || offset<0 || offset>12)
