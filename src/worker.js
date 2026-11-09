@@ -139,14 +139,15 @@ async function myParticipation(request, env) {
     next_reset_at:time.nextReset,eastern_day:time.key,
     streak_calendar:[],can_save_streak:false,streak_save_day:null,game_features_enabled:ready };
   if (!hash) return json(empty);
+  const vt=await activeVoteTable(env);
   const cutoff=easternMidnight(shiftDateKey(time.key,-370));
   const [overall,daily,history,remaining,checkins,saves]=await Promise.all([
-    env.DB.prepare("SELECT COUNT(*) AS votes FROM votes WHERE voter_key_hash=?").bind(hash).first(),
-    env.DB.prepare("SELECT COUNT(*) AS votes FROM votes WHERE voter_key_hash=? AND created_at>=? AND created_at<?")
+    env.DB.prepare("SELECT COUNT(*) AS votes FROM " + vt + " WHERE voter_key_hash=?").bind(hash).first(),
+    env.DB.prepare("SELECT COUNT(*) AS votes FROM " + vt + " WHERE voter_key_hash=? AND created_at>=? AND created_at<?")
       .bind(hash,time.start,time.nextReset).first(),
-    env.DB.prepare("SELECT created_at FROM votes WHERE voter_key_hash=? AND created_at>=? ORDER BY created_at DESC LIMIT 5000")
+    env.DB.prepare("SELECT created_at FROM " + vt + " WHERE voter_key_hash=? AND created_at>=? ORDER BY created_at DESC LIMIT 5000")
       .bind(hash,cutoff).all(),
-    env.DB.prepare("SELECT COUNT(*) AS remaining FROM incidents i WHERE i.state_code='NH' AND i.status='published' AND NOT EXISTS (SELECT 1 FROM votes v WHERE v.incident_id=i.id AND v.voter_key_hash=?)")
+    env.DB.prepare("SELECT COUNT(*) AS remaining FROM incidents i WHERE i.state_code='NH' AND i.status='published' AND NOT EXISTS (SELECT 1 " + vt + " v WHERE v.incident_id=i.id AND v.voter_key_hash=?)")
       .bind(hash).first(),
     ready ? env.DB.prepare("SELECT eastern_day FROM jury_daily_checkins WHERE voter_key_hash=? AND eastern_day>=?")
       .bind(hash,shiftDateKey(time.key,-370)).all() : Promise.resolve({results:[]}),
@@ -203,6 +204,7 @@ async function weeklyBoard(env, offset=0) {
   const weekStart=easternMidnight(monday);
   const weekEnd=easternMidnight(shiftDateKey(monday,7));
   const minimum=weeklyMinimumVotes(env);
+  const vt=await activeVoteTable(env);
   if (!(await featureSchemaReady(env))) return json({
     ready:false,week_start:weekStart,week_end:weekEnd,podiums:[],leaders:[],
     category_counts:[],categories:behaviorCategories,minimum_votes:minimum
@@ -229,7 +231,7 @@ async function weeklyBoard(env, offset=0) {
       "SELECT i.id,i.title,i.category," +
       "COUNT(CASE WHEN v.choice='off' THEN 1 END) AS off_votes," +
       "COUNT(CASE WHEN v.choice='pass' THEN 1 END) AS pass_votes " +
-      "FROM incidents i LEFT JOIN votes v ON v.incident_id=i.id " +
+      "FROM incidents i LEFT JOIN " + vt + " v ON v.incident_id=i.id " +
       "WHERE i.state_code='NH' AND i.status='published' AND i.created_at>=? AND i.created_at<? " +
       "GROUP BY i.id HAVING COUNT(v.incident_id)>0 " +
       "ORDER BY i.category,off_votes DESC,COUNT(v.incident_id) DESC,i.created_at DESC LIMIT 300"
@@ -265,6 +267,7 @@ async function snapshotPreviousWeek(env, scheduledAt = Date.now()) {
   const lastMonday=easternWeekKey(1,d);
   const start=easternMidnight(lastMonday);
   const end=easternMidnight(shiftDateKey(lastMonday,7));
+  const vt=await activeVoteTable(env);
   const existing=await env.DB.prepare("SELECT 1 FROM weekly_snapshots WHERE week_start=?")
     .bind(start).first();
   if (existing) return;
@@ -272,7 +275,7 @@ async function snapshotPreviousWeek(env, scheduledAt = Date.now()) {
     env.DB.prepare(
       "SELECT i.id,i.category,COUNT(CASE WHEN v.choice='off' THEN 1 END) AS off_votes," +
       "COUNT(CASE WHEN v.choice='pass' THEN 1 END) AS pass_votes " +
-      "FROM incidents i LEFT JOIN votes v ON v.incident_id=i.id " +
+      "FROM incidents i LEFT JOIN " + vt + " v ON v.incident_id=i.id " +
       "WHERE i.state_code='NH' AND i.status='published' AND i.created_at>=? AND i.created_at<? " +
       "GROUP BY i.id HAVING COUNT(v.incident_id)>=? AND COUNT(CASE WHEN v.choice='off' THEN 1 END)>COUNT(CASE WHEN v.choice='pass' THEN 1 END) " +
       "ORDER BY i.category,off_votes DESC,COUNT(v.incident_id) DESC,i.created_at DESC LIMIT 300"
