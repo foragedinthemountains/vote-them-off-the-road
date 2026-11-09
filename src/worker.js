@@ -147,7 +147,7 @@ async function myParticipation(request, env) {
       .bind(hash,time.start,time.nextReset).first(),
     env.DB.prepare("SELECT created_at FROM " + vt + " WHERE voter_key_hash=? AND created_at>=? ORDER BY created_at DESC LIMIT 5000")
       .bind(hash,cutoff).all(),
-    env.DB.prepare("SELECT COUNT(*) AS remaining FROM incidents i WHERE i.state_code='NH' AND i.status='published' AND NOT EXISTS (SELECT 1 " + vt + " v WHERE v.incident_id=i.id AND v.voter_key_hash=?)")
+    env.DB.prepare("SELECT COUNT(*) AS remaining FROM incidents i WHERE i.state_code='NH' AND i.status='published' AND NOT EXISTS (SELECT 1 FROM " + vt + " v WHERE v.incident_id=i.id AND v.voter_key_hash=?)")
       .bind(hash).first(),
     ready ? env.DB.prepare("SELECT eastern_day FROM jury_daily_checkins WHERE voter_key_hash=? AND eastern_day>=?")
       .bind(hash,shiftDateKey(time.key,-370)).all() : Promise.resolve({results:[]}),
