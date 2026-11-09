@@ -129,6 +129,186 @@ async function gameSchemaReady(env) {
   return gameSchemaCache.ready;
 }
 
+
+const XP_LEVELS = [
+  {xp:0,name:"Jury Member",icon:"⚖️"},
+  {xp:100,name:"Regular Juror",icon:"✅"},
+  {xp:350,name:"Road Referee",icon:"🛡️"},
+  {xp:1000,name:"Jury Foreperson",icon:"🏅"},
+  {xp:2500,name:"Judge",icon:"👨‍⚖️"},
+  {xp:7000,name:"Chief Justice",icon:"👑"}
+];
+let xpSchemaCache={until:0,ready:false};
+async function xpSchemaReady(env){
+  if(!env.DB)return false;
+  if(xpSchemaCache.until>Date.now())return xpSchemaCache.ready;
+  try{
+    const marker=await env.DB.prepare("SELECT id FROM jury_xp_migration_complete WHERE id=1").first();
+    if(!marker)throw Error("Jury XP not activated");
+    await env.DB.prepare("SELECT event_key FROM jury_xp_events LIMIT 0").all();
+    await env.DB.prepare("SELECT incident_id FROM jury_verdict_guesses LIMIT 0").all();
+    xpSchemaCache={until:Date.now()+30000,ready:true};
+  }catch{
+    xpSchemaCache={until:Date.now()+30000,ready:false};
+  }
+  return xpSchemaCache.ready;
+}
+// Event keys are deterministic and keyed to the anonymous voter. Repeating a
+// vote, changing a choice, or reloading cannot award the same XP twice.
+async function awardJuryXP(env,voter,eventKey,kind,xp,day=easternDateKey()){
+  if(!voter||!(await xpSchemaReady(env)))return false;
+  const saved=await env.DB.prepare(
+    "INSERT OR IGNORE INTO jury_xp_events "+
+    "(voter_key_hash,event_key,kind,xp,eastern_day) VALUES(?,?,?,?,?)"
+  ).bind(voter,eventKey,kind,xp,day).run();
+  return Number(saved.meta?.changes||0)>0;
+}
+async function awardLimitedDailyXP(env,voter,eventKey,kind,xp,maxPerDay=3,day=easternDateKey()){
+  if(!voter||!(await xpSchemaReady(env)))return false;
+  const saved=await env.DB.prepare(
+    "INSERT OR IGNORE INTO jury_xp_events "+
+    "(voter_key_hash,event_key,kind,xp,eastern_day) "+
+    "SELECT ?,?,?,?,? WHERE "+
+    "(SELECT COUNT(*) FROM jury_xp_events WHERE voter_key_hash=? "+
+    "AND eastern_day=? AND kind=?) < ?"
+  ).bind(voter,eventKey,kind,xp,day,voter,day,kind,maxPerDay).run();
+  return Number(saved.meta?.changes||0)>0;
+}
+async function awardReturningJurorXP(env,voter,day=easternDateKey()){
+  if(!(await xpSchemaReady(env)))return false;
+  const previous=shiftDateKey(day,-1);
+  const didReturn=await env.DB.prepare(
+    "SELECT 1 FROM jury_xp_events WHERE voter_key_hash=? AND eastern_day=? "+
+    "AND kind IN ('vote','battle','verdict_guess','caught_up') LIMIT 1"
+  ).bind(voter,previous).first();
+  return didReturn?awardJuryXP(env,voter,"return:"+day,"return",5,day):false;
+}
+async function awardJuryDutyXP(env,voter,day=easternDateKey()){
+  if(!(await xpSchemaReady(env)))return false;
+  const vt=await activeVoteTable(env);
+  const start=easternMidnight(day),end=easternMidnight(shiftDateKey(day,1));
+  const [today,remaining]=await Promise.all([
+    env.DB.prepare("SELECT COUNT(*) AS n FROM "+vt+
+      " WHERE voter_key_hash=? AND created_at>=? AND created_at<?")
+      .bind(voter,start,end).first(),
+    env.DB.prepare("SELECT COUNT(*) AS n FROM incidents i "+
+      "WHERE i.state_code='NH' AND i.status='published' "+
+      "AND NOT EXISTS (SELECT 1 FROM "+vt+" v WHERE v.incident_id=i.id "+
+      "AND v.voter_key_hash=?)").bind(voter).first()
+  ]);
+  const totalToday=Number(today?.n||0);
+  const target=Math.min(3,totalToday+Number(remaining?.n||0));
+  if(totalToday<1||totalToday<target)return false;
+  return awardJuryXP(env,voter,"duty:"+day,"jury_duty",20,day);
+}
+async function rewardJuryAction(env,voter,action){
+  if(!(await xpSchemaReady(env)))return;
+  try{
+    const day=easternDateKey();
+    if(action.type==="vote"){
+      await awardJuryXP(env,voter,"vote:"+action.incidentId,"vote",10,day);
+      await awardJuryDutyXP(env,voter,day);
+    }else if(action.type==="battle"){
+      await awardLimitedDailyXP(env,voter,"battle:"+action.pair,"battle",5,3,day);
+    }else if(action.type==="caught_up"){
+      await awardJuryXP(env,voter,"caught-up:"+day,"caught_up",5,day);
+    }
+    await awardReturningJurorXP(env,voter,day);
+  }catch(error){
+    // A transient XP outage must not invalidate a legitimate recorded vote.
+    console.error("Jury XP awarding error",error?.message||"unknown");
+  }
+}
+async function settleWeeklyPredictionXP(env,voter){
+  if(!(await gameSchemaReady(env)) || !(await xpSchemaReady(env)))return;
+  // Award only after official archived category counts exist. Ties earn credit.
+  const wins=await env.DB.prepare(
+    "SELECT p.week_start FROM weekly_predictions p "+
+    "JOIN weekly_snapshots s ON s.week_start=p.week_start "+
+    "JOIN weekly_category_results r ON r.week_start=p.week_start "+
+    "AND r.category=p.predicted_category "+
+    "WHERE p.voter_key_hash=? AND r.incident_count>0 "+
+    "AND r.incident_count=(SELECT MAX(q.incident_count) FROM "+
+    "weekly_category_results q WHERE q.week_start=p.week_start) "+
+    "ORDER BY p.week_start DESC LIMIT 36"
+  ).bind(voter).all();
+  for(const row of wins.results||[]){
+    const week=Number(row.week_start);
+    await awardJuryXP(env,voter,"weekly-prediction:"+week,
+      "weekly_prediction",30,easternDateKey(new Date(week*1000)));
+  }
+}
+async function juryXPOverview(request,env){
+  const ready=await xpSchemaReady(env);
+  const day=easternGameDay();
+  const voter=await voterHash(request);
+  if(!ready||!voter)return json({ready:false,
+    message:ready?"Refresh to start your anonymous Jury XP profile":
+      "Jury XP launches after database migration 0005.",ranks:XP_LEVELS});
+  try{await settleWeeklyPredictionXP(env,voter);}catch(error){
+    console.error("Weekly prediction XP settlement error",error?.message||"unknown");
+  }
+  const vt=await activeVoteTable(env);
+  const [total,events,votes,available,eligibleGuess,battles]=await Promise.all([
+    env.DB.prepare("SELECT COALESCE(SUM(xp),0) AS xp FROM jury_xp_events WHERE voter_key_hash=?")
+      .bind(voter).first(),
+    env.DB.prepare("SELECT kind,COUNT(*) AS n,COALESCE(SUM(xp),0) AS xp FROM jury_xp_events "+
+      "WHERE voter_key_hash=? AND eastern_day=? GROUP BY kind")
+      .bind(voter,day.key).all(),
+    env.DB.prepare("SELECT COUNT(*) AS n FROM "+vt+
+      " WHERE voter_key_hash=? AND created_at>=? AND created_at<?")
+      .bind(voter,day.start,day.nextReset).first(),
+    env.DB.prepare("SELECT COUNT(*) AS n FROM incidents i WHERE i.state_code='NH' "+
+      "AND i.status='published' AND NOT EXISTS "+
+      "(SELECT 1 FROM "+vt+" v WHERE v.incident_id=i.id AND v.voter_key_hash=?)")
+      .bind(voter).first(),
+    env.DB.prepare(
+      "SELECT 1 FROM incidents i WHERE i.state_code='NH' AND i.status='published' "+
+      "AND EXISTS(SELECT 1 FROM "+vt+" v WHERE v.incident_id=i.id) "+
+      "AND NOT EXISTS(SELECT 1 FROM jury_verdict_guesses g "+
+      "WHERE g.incident_id=i.id AND g.voter_key_hash=?) LIMIT 1"
+    ).bind(voter).first(),
+    await gameSchemaReady(env) ? env.DB.prepare(
+      "SELECT COUNT(*) AS n FROM battle_votes WHERE voter_key_hash=? "+
+      "AND created_at>=? AND created_at<?"
+    ).bind(voter,day.start,day.nextReset).first() : Promise.resolve({n:0})
+  ]);
+  const xp=Number(total?.xp||0);
+  const rank=[...XP_LEVELS].reverse().find(r=>xp>=r.xp)||XP_LEVELS[0];
+  const next=XP_LEVELS.find(r=>r.xp>xp)||null;
+  const activity=Object.fromEntries((events.results||[]).map(row=>[row.kind,
+    {count:Number(row.n||0),xp:Number(row.xp||0)}]));
+  const todayVotes=Number(votes?.n||0),remaining=Number(available?.n||0);
+  const dutyTarget=Math.min(3,todayVotes+remaining);
+  const checkin=Number(activity.caught_up?.count||0);
+  const missions=[
+    {id:"first-verdict",title:"Cast a fresh verdict",description:"Judge a case you haven't voted on.",
+      progress:Math.min(1,todayVotes),target:1,available:todayVotes>0||remaining>0,
+      reward_xp:10,complete:todayVotes>=1},
+    {id:"daily-duty",title:dutyTarget?"Complete Daily Jury Duty":"All caught up?",
+      description:dutyTarget?"Judge up to three new cases.":"Check in when you've voted on every available case.",
+      progress:dutyTarget?Math.min(dutyTarget,todayVotes):checkin,
+      target:dutyTarget||1,available:true,
+      reward_xp:dutyTarget?20:5,
+      complete:dutyTarget?
+        Number(activity.jury_duty?.count||0)>0:checkin>0},
+    {id:"guess",title:"Guess a community verdict",description:"Pick the leading reaction before seeing its tally.",
+      progress:Math.min(1,Number(activity.verdict_guess?.count||0)),
+      target:1,available:Boolean(eligibleGuess)||Number(activity.verdict_guess?.count||0)>0,
+      reward_xp:5,complete:Number(activity.verdict_guess?.count||0)>0},
+    {id:"duel",title:"Judge a head-to-head",description:"Pick between two cases in the same category.",
+      progress:Math.min(1,Number(activity.battle?.count||0)),
+      target:1,available:Boolean(battles?.n)||Number(activity.battle?.count||0)>0,
+      reward_xp:5,complete:Number(activity.battle?.count||0)>0}
+  ];
+  // A duel can be unavailable despite the presence of prior actions; the
+  // challenge is not required to complete Daily Jury Duty.
+  return json({ready:true,xp,rank,next_rank:next,
+    xp_to_next:next?next.xp-xp:0,ranks:XP_LEVELS,day:day.key,
+    next_reset_at:day.nextReset,today_xp:(events.results||[]).reduce((sum,row)=>
+      sum+Number(row.xp||0),0),missions});
+}
+
 async function myParticipation(request, env) {
   const time = easternGameDay();
   const ready = await gameSchemaReady(env);
