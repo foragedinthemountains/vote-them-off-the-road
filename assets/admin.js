@@ -191,13 +191,35 @@
         (incident.location_label || "New Hampshire") + " · " + formatDate(incident.created_at));
       const counts = el("p", "admin-subtext",
         "🚫 " + incident.off_votes + " off · ✓ " + incident.pass_votes +
-        " pass · " + incident.pending_reports + " pending reports");
+        " pass · 😂 " + (incident.funny_votes || 0) + " funny · " +
+        incident.pending_reports + " pending reports");
       item.append(heading, meta, counts);
       if (incident.auto_hidden_at && incident.status === "hidden") {
         item.classList.add("admin-priority");
         item.append(el("p", "admin-priority-label", "⚠ AUTO-HIDDEN · REVIEW FIRST"));
       }
-      if (incident.category) item.append(el("p", "admin-meta", "Category: " + label(incident.category)));
+      if (incident.category) {
+        const categoryEditor=el("div","admin-category-editor");
+        const categoryLabel=el("label","","Category");
+        const categorySelect=el("select");
+        categorySelect.setAttribute("aria-label","Change category for "+incident.title);
+        const categories={
+          bad_parking:"Parking fails",cutting_off:"Cut-offs & close calls",
+          tailgating:"Tailgating",distracted:"Distracted driving",
+          signal:"Signals & intersections",speeding:"Speeding",
+          road_rage:"Road rage",roadside:"Other roadside oddities",
+          funny_unexpected:"😂 Funny / Unexpected",other:"Other"
+        };
+        for(const [key,name] of Object.entries(categories)){
+          categorySelect.append(new Option(name,key));
+        }
+        categorySelect.value=incident.category;
+        categoryEditor.append(categoryLabel,categorySelect);
+        categoryEditor.append(actionButton("Save category","action-strong",()=>
+          mutate("/admin/api/incidents/"+encodeURIComponent(incident.id),
+            {category:categorySelect.value},"Incident category updated.")));
+        item.append(categoryEditor);
+      }
       const actions = el("div", "admin-actions");
       if (incident.status === "published") {
         actions.append(actionButton("Hide from site", "action-danger", () =>
