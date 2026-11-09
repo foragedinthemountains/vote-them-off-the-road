@@ -34,5 +34,11 @@
         "period": 60
       }
     }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "PHOTOS",
+      "bucket_name": "votethemofftheroad-photos"
+    }
   ]
 }
