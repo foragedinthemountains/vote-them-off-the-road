@@ -198,28 +198,32 @@
         item.classList.add("admin-priority");
         item.append(el("p", "admin-priority-label", "⚠ AUTO-HIDDEN · REVIEW FIRST"));
       }
-      if (incident.category) {
-        const categoryEditor=el("div","admin-category-editor");
-        const categoryLabel=el("label","","Category");
-        const categorySelect=el("select");
-        categorySelect.setAttribute("aria-label","Change category for "+incident.title);
-        const categories={
-          bad_parking:"Parking fails",cutting_off:"Cut-offs & close calls",
-          tailgating:"Tailgating",distracted:"Distracted driving",
-          signal:"Signals & intersections",speeding:"Speeding",
-          road_rage:"Road rage",roadside:"Other roadside oddities",
-          funny_unexpected:"😂 Funny / Unexpected",other:"Other"
-        };
-        for(const [key,name] of Object.entries(categories)){
-          categorySelect.append(new Option(name,key));
-        }
-        categorySelect.value=incident.category;
-        categoryEditor.append(categoryLabel,categorySelect);
-        categoryEditor.append(actionButton("Save category","action-strong",()=>
-          mutate("/admin/api/incidents/"+encodeURIComponent(incident.id),
-            {category:categorySelect.value},"Incident category updated.")));
-        item.append(categoryEditor);
+      const categoryEditor=el("div","admin-category-editor");
+      const categoryLabel=el("label","","Change category");
+      const categorySelect=el("select");
+      const categories={
+        bad_parking:"Parking fails",cutting_off:"Cut-offs & close calls",
+        tailgating:"Tailgating",distracted:"Distracted driving",
+        signal:"Signals & intersections",speeding:"Speeding",
+        road_rage:"Road rage",roadside:"Other roadside oddities",
+        funny_unexpected:"😂 Funny / Unexpected",other:"Other"
+      };
+      const selectId="category-"+incident.id;
+      categorySelect.id=selectId;
+      categoryLabel.htmlFor=selectId;
+      categorySelect.setAttribute("aria-label","Change category for "+incident.title);
+      for(const [key,name] of Object.entries(categories)){
+        categorySelect.append(new Option(name,key));
       }
+      categorySelect.value=Object.hasOwn(categories,incident.category)
+        ? incident.category : "other";
+      const currentCategory=el("p","admin-category-current",
+        "Current: "+(categories[incident.category]||"Other"));
+      categoryEditor.append(categoryLabel,currentCategory,categorySelect);
+      categoryEditor.append(actionButton("Save category","action-strong",()=>
+        mutate("/admin/api/incidents/"+encodeURIComponent(incident.id),
+          {category:categorySelect.value},"Incident category updated.")));
+      item.append(categoryEditor);
       const actions = el("div", "admin-actions");
       if (incident.status === "published") {
         actions.append(actionButton("Hide from site", "action-danger", () =>

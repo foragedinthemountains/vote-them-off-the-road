@@ -44,3 +44,10 @@
 .admin-category-editor label{font-size:12px;font-weight:900}
 .admin-category-editor select{font:inherit;font-size:13px;font-weight:700;padding:9px;border:1px solid #61736b;border-radius:8px;background:#fffefa;max-width:min(300px,100%)}
 .admin-category-editor button{min-height:38px}
+
+/* Category editor is intentionally visible for every incident, even older records. */
+.admin-category-help{margin:8px 0 0;color:#46574f;font-size:14px;font-weight:650}
+.admin-category-editor{padding:14px;border:2px solid #b7a276;border-radius:12px;background:#fff3d4}
+.admin-category-editor label{font-weight:900;color:#28372f}
+.admin-category-editor .admin-category-current{margin:0;color:#46534d;font-size:12px;font-weight:750}
+.admin-category-editor select{background:#fff;min-width:220px}
