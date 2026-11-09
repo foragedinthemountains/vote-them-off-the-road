@@ -204,3 +204,9 @@
 #funniest{scroll-margin-top:88px}
 @media(min-width:1490px){#funniest{scroll-margin-top:30px}}
 @media(max-width:700px){#funniest{scroll-margin-top:70px}}
+
+/* Make the weekly contest an explicit part of funny case presentation. */
+.featured-contest-link{display:inline-flex;align-items:center;justify-content:center;min-height:41px;padding:8px 13px;border-radius:9px;border:2px solid #f7c744;color:#f7c744;background:transparent;font-size:12px;font-weight:900;text-decoration:none}
+.featured-contest-link:hover,.featured-contest-link:focus-visible{color:#192e2b;background:#f7c744}
+.feed-contest-label{display:inline-flex;align-items:center;margin:12px 0 6px;padding:8px 11px;border:1px solid #d0a347;border-radius:9px;background:#fff4d7;color:#78500d;font-size:12px;font-weight:900;text-decoration:none}
+.feed-contest-label:hover,.feed-contest-label:focus-visible{background:#ffe6a1;color:#46310b}
