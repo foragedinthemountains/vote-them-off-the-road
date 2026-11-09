@@ -45,10 +45,17 @@
       lastUser=thisUser;
     }
     try{
-      const [me,posts]=await Promise.all([
+      const [me,posts,score]=await Promise.all([
         fetchAuthenticated("/api/account/me"),
-        fetchAuthenticated("/api/account/incidents")
+        fetchAuthenticated("/api/account/incidents"),
+        fetchAuthenticated("/api/account/xp")
       ]);
+      const scoreText=score.ready?
+        Number(score.xp||0).toLocaleString()+" total linked-browser Jury XP · "+
+        (score.rank?.name||"Jury Member")+" · "+
+        Number(score.linked_browsers||0)+" linked browser(s)":
+        "Jury XP is not active yet.";
+      historyStatus.textContent=scoreText;
       incidentList.replaceChildren();
       if(!posts.incidents?.length){
         incidentList.append(make("p","owner-hint",
