@@ -124,7 +124,7 @@
       const share = element("button", "feed-share", "↗ Share this moment");
       share.type = "button";
       share.addEventListener("click", async () => {
-        const shareUrl = location.origin + "/nh/?incident=" + encodeURIComponent(item.id) + "#incidents";
+        const shareUrl = window.location.origin + "/nh/?incident=" + encodeURIComponent(item.id) + "#incidents";
         try {
           if (navigator.share) {
             await navigator.share({ title: item.title, url: shareUrl });
