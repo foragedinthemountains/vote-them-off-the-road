@@ -103,3 +103,49 @@
 @media(max-width:560px){.jury-calendar{grid-template-columns:repeat(7,minmax(0,1fr))}.battle-grid{grid-template-columns:1fr 1fr}.battle-choice{padding:10px}.jury-game-panel{padding:18px}.battle-choice img{height:100px}.battle-choice strong{font-size:14px}}
 
 .jury-calendar-day.saved{background:#f7e9b2;border-color:#b78c1d;color:#74520b}
+
+/* Vote-first landing page with a compact jump menu */
+.nh-hero{padding:42px 0 38px}
+.nh-hero h1{font-size:clamp(48px,6.5vw,78px);margin-bottom:13px}
+.nh-hero p{font-size:16px;max-width:760px}
+.nh-hero-actions{display:flex;gap:12px;flex-wrap:wrap;margin-top:22px}
+.board-jump-nav{position:sticky;top:0;z-index:50;background:#fffefa;border-bottom:2px solid #202b2c;box-shadow:0 3px 8px #15232915}
+.board-jump-inner{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:6px;padding-top:9px;padding-bottom:9px}
+.board-jump-label{font-size:10px;letter-spacing:.07em;font-weight:900;color:#61706b;margin-right:8px}
+.board-jump-inner a{display:block;padding:10px 12px;border-radius:8px;font-size:12px;font-weight:900;color:#21302e;text-decoration:none}
+.board-jump-inner a:hover,.board-jump-inner a[aria-current="location"]{background:#f7c744}
+.board-jump-inner a.board-jump-submit{background:#1b2b2c;color:#fff}
+#incidents,#weekly,#jury-games,#daily-jury{scroll-margin-top:88px}
+#incidents{padding-top:52px}
+@media(min-width:1490px){
+ .board-jump-nav{position:fixed;z-index:50;left:max(10px,calc((100vw - 1480px)/2));top:24%;width:134px;border:0;background:transparent;box-shadow:none}
+ .board-jump-inner{width:134px;padding:10px 8px;display:flex;flex-direction:column;align-items:stretch;background:#fffefa;border:1px solid #bdb7a8;box-shadow:4px 5px 0 #192527;border-radius:12px}
+ .board-jump-inner a{padding:11px 8px;line-height:1.2}
+ .board-jump-label{padding:3px 7px}
+ #incidents,#weekly,#jury-games,#daily-jury{scroll-margin-top:30px}
+}
+@media(max-width:700px){
+ .nh-hero{padding:32px 0 29px}
+ .nh-hero-actions .btn{flex:1;padding:11px 12px;min-height:46px}
+ .board-jump-inner{justify-content:flex-start;overflow-x:auto;flex-wrap:nowrap;scrollbar-width:thin;padding:7px 12px}
+ .board-jump-inner a{flex-shrink:0;font-size:11px;padding:9px 10px;white-space:nowrap}
+ .board-jump-label{display:none}
+ #incidents,#weekly,#jury-games,#daily-jury{scroll-margin-top:70px}
+ #incidents{padding-top:36px}
+}
+/* Direct one-click Facebook sharing and expanded choices */
+.feed-share-row{display:flex;gap:9px;align-items:start;flex-wrap:wrap;margin-top:20px}
+.feed-share-facebook{display:inline-flex;align-items:center;justify-content:center;min-height:42px;padding:9px 12px;border-radius:8px;background:#1877f2;color:#fff;font-weight:900;font-size:12px;text-align:center}
+.feed-share-facebook:hover,.feed-share-facebook:focus-visible{background:#0b59c2;color:#fff}
+.feed-share-menu{position:relative;z-index:1}
+.feed-share-menu[open]{z-index:3}
+.feed-share-menu summary{display:inline-flex;align-items:center;min-height:42px;cursor:pointer;border:2px solid #4b594f;border-radius:8px;padding:8px 12px;background:#fffefa;color:#203b32;font-size:12px;font-weight:900;list-style:none}
+.feed-share-menu summary::-webkit-details-marker{display:none}
+.feed-share-menu summary:after{content:" ▾";margin-left:6px}
+.feed-share-menu[open] summary{background:#f7c744}
+.feed-share-options{position:absolute;top:calc(100% + 5px);left:0;min-width:215px;padding:8px;background:#fffefa;border:2px solid #27332f;border-radius:10px;box-shadow:5px 5px 0 #202c2a;display:grid;gap:4px}
+.feed-share-options a,.feed-share-options button{display:block;width:100%;padding:11px 10px;border:0;border-radius:7px;background:transparent;color:#1d3029;text-align:left;font:inherit;font-size:13px;font-weight:800;cursor:pointer}
+.feed-share-options a:hover,.feed-share-options button:hover{background:#f4e4ad}
+.feed-share-options .feed-share-link{width:100%;border:1px solid #768278;padding:10px;font-size:12px}
+.feed-card{overflow:visible}
+@media(max-width:450px){.feed-share-row{flex-direction:column;align-items:stretch}.feed-share-menu,.feed-share-menu summary,.feed-share-facebook{width:100%}.feed-share-options{min-width:230px;max-width:calc(100vw - 65px)}}
