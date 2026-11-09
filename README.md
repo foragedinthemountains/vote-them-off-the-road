@@ -51,3 +51,16 @@ Do not commit credentials or API secrets. Turnstile secrets and any future admin
 7. Expand to additional states and monetization after real audience growth.
 
 The goal is entertainment and community voting, not driver identification. Ordinary public-road footage is not subject to a blanket face/plate blurring requirement, but threats, harassment and targeted publication of private contact details are prohibited.
+
+## Story submissions and reports (Phase 2)
+
+- Backend: POST /api/incidents, POST /api/incidents/:id/reports, GET /api/config.
+- Public writing is closed until TURNSTILE_SITE_KEY (Text) and TURNSTILE_SECRET_KEY (Secret) are set in Cloudflare Worker Settings > Variables and Secrets, and the WRITE_RATE_LIMITER binding is configured.
+- Create a Cloudflare Turnstile widget restricted to votethemofftheroad.com. Never commit a secret key to GitHub.
+- GET /api/config will report submissions_enabled: true when runtime configuration is active.
+- Users can submit text stories at /nh/submit/. Stories publish without routine pre-approval. Media upload and voting are future features.
+- Every incident in the NH feed has a report/removal request link. Reports are stored in the private D1 reports table.
+- Until we have an admin dashboard and alerts, the site operator must manually monitor the reports queue.
+- D1 queue SQL: SELECT id,incident_id,reason,details,contact_email,created_at FROM reports WHERE status='open' ORDER BY created_at DESC;
+- To hide a specific incident: UPDATE incidents SET status='hidden', updated_at=unixepoch() WHERE id='REPLACE-WITH-ID';
+- Do not announce a broad public launch until removal requests can be handled promptly.
