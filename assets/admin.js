@@ -224,6 +224,43 @@
         mutate("/admin/api/incidents/"+encodeURIComponent(incident.id),
           {category:categorySelect.value},"Incident category updated.")));
       item.append(categoryEditor);
+      if(Number(incident.author_edits||0)>0){
+        const total=Number(incident.author_edits);
+        const notice=el("p","admin-priority-label",
+          "✎ AUTHOR CHANGES RECORDED · "+total+
+          " previous version"+(total===1?"":"s"));
+        const history=el("div","admin-edit-history");
+        history.hidden=true;
+        const show=actionButton("Review author edit history","action-strong",async()=>{
+          if(!history.hidden){history.hidden=true;return;}
+          show.disabled=true;
+          history.replaceChildren(el("p","","Loading past versions…"));
+          try{
+            const data=await getJson("/admin/api/incidents/"+
+              encodeURIComponent(incident.id)+"/edits");
+            history.replaceChildren();
+            if(!data.edits?.length){
+              history.append(el("p","","No author edit history available."));
+            }
+            for(const old of data.edits||[]){
+              const version=el("section","admin-edit-version");
+              version.append(el("strong","",formatDate(old.created_at)+
+                " · Previous "+(old.previous_status||"")+" version"));
+              version.append(el("p","",
+                "Title: "+(old.previous_title||"")+" · Category: "+
+                (old.previous_category||"other")));
+              version.append(el("p","",old.previous_description||""));
+              history.append(version);
+            }
+          }catch(error){
+            history.replaceChildren(el("p","",error.message||"Could not load edits."));
+          }finally{
+            show.disabled=false;
+            history.hidden=false;
+          }
+        });
+        item.append(notice,show,history);
+      }
       const actions = el("div", "admin-actions");
       if (incident.status === "published") {
         actions.append(actionButton("Hide from site", "action-danger", () =>
