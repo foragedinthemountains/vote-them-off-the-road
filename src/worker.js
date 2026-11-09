@@ -98,6 +98,7 @@ async function gameSchemaReady(env) {
     await env.DB.prepare("SELECT week_start FROM weekly_predictions LIMIT 0").all();
     await env.DB.prepare("SELECT week_start FROM weekly_category_results LIMIT 0").all();
     await env.DB.prepare("SELECT week_start FROM weekly_snapshots LIMIT 0").all();
+    await env.DB.prepare("SELECT saved_day FROM jury_streak_saves LIMIT 0").all();
     gameSchemaCache = { until:Date.now()+30000, ready:true };
   } catch {
     gameSchemaCache = { until:Date.now()+30000, ready:false };
@@ -113,19 +114,21 @@ async function myParticipation(request, env) {
     daily_target:0, available_cases:0, duty_complete:false,
     can_check_in:false, badge:"New juror",next_badge_at:3,
     next_reset_at:time.nextReset,eastern_day:time.key,
-    streak_calendar:[],game_features_enabled:ready };
+    streak_calendar:[],can_save_streak:false,streak_save_day:null,game_features_enabled:ready };
   if (!hash) return json(empty);
-  const cutoff=easternMidnight(shiftDateKey(time.key,-44));
-  const [overall,daily,history,remaining,checkins]=await Promise.all([
+  const cutoff=easternMidnight(shiftDateKey(time.key,-370));
+  const [overall,daily,history,remaining,checkins,saves]=await Promise.all([
     env.DB.prepare("SELECT COUNT(*) AS votes FROM votes WHERE voter_key_hash=?").bind(hash).first(),
     env.DB.prepare("SELECT COUNT(*) AS votes FROM votes WHERE voter_key_hash=? AND created_at>=? AND created_at<?")
       .bind(hash,time.start,time.nextReset).first(),
-    env.DB.prepare("SELECT created_at FROM votes WHERE voter_key_hash=? AND created_at>=? ORDER BY created_at DESC LIMIT 2000")
+    env.DB.prepare("SELECT created_at FROM votes WHERE voter_key_hash=? AND created_at>=? ORDER BY created_at DESC LIMIT 5000")
       .bind(hash,cutoff).all(),
     env.DB.prepare("SELECT COUNT(*) AS remaining FROM incidents i WHERE i.state_code='NH' AND i.status='published' AND NOT EXISTS (SELECT 1 FROM votes v WHERE v.incident_id=i.id AND v.voter_key_hash=?)")
       .bind(hash).first(),
     ready ? env.DB.prepare("SELECT eastern_day FROM jury_daily_checkins WHERE voter_key_hash=? AND eastern_day>=?")
-      .bind(hash,shiftDateKey(time.key,-44)).all() : Promise.resolve({results:[]})
+      .bind(hash,shiftDateKey(time.key,-370)).all() : Promise.resolve({results:[]}),
+    ready ? env.DB.prepare("SELECT saved_day,eastern_month FROM jury_streak_saves WHERE voter_key_hash=? AND saved_day>=?")
+      .bind(hash,shiftDateKey(time.key,-370)).all() : Promise.resolve({results:[]})
   ]);
   const votes=Number(overall?.votes||0);
   const todayVotes=Number(daily?.votes||0);
@@ -133,10 +136,17 @@ async function myParticipation(request, env) {
   const activeDays=new Set((history.results||[]).map(row=>
     easternDateKey(new Date(Number(row.created_at)*1000))));
   for (const row of checkins.results||[]) activeDays.add(row.eastern_day);
+  const savedDays=new Set((saves.results||[]).map(row=>row.saved_day));
+  for(const key of savedDays)activeDays.add(key);
+  const yesterday=shiftDateKey(time.key,-1);
+  const threeBefore=[1,2,3].every(n=>activeDays.has(shiftDateKey(yesterday,-n)));
+  const month=yesterday.slice(0,7);
+  const saveUsed=(saves.results||[]).some(row=>row.eastern_month===month);
+  const canSaveStreak=ready && !activeDays.has(yesterday) && threeBefore && !saveUsed;
   const activeToday=activeDays.has(time.key);
   let day=activeToday ? time.key : shiftDateKey(time.key,-1);
   let streak=0;
-  while(streak<44 && activeDays.has(day)) {
+  while(streak<365 && activeDays.has(day)) {
     streak++;
     day=shiftDateKey(day,-1);
   }
@@ -144,7 +154,7 @@ async function myParticipation(request, env) {
   const calendar=[];
   for(let ago=13;ago>=0;ago--) {
     const key=shiftDateKey(time.key,-ago);
-    calendar.push({day:key,active:activeDays.has(key)});
+    calendar.push({day:key,active:activeDays.has(key),saved:savedDays.has(key)});
   }
   const tiers=[{min:0,name:"New juror"},{min:3,name:"Regular juror"},
     {min:10,name:"Road referee"},{min:25,name:"Veteran voter"},
@@ -156,6 +166,7 @@ async function myParticipation(request, env) {
     today_votes:todayVotes,streak_days:streak,daily_target:target,
     available_cases:available,duty_complete:target>0?todayVotes>=target:activeToday,
     can_check_in:ready && target===0 && !activeToday,
+    can_save_streak:canSaveStreak,streak_save_day:canSaveStreak?yesterday:null,
     badge,next_badge_at:next?.min||null,next_reset_at:time.nextReset,
     eastern_day:time.key,streak_calendar:calendar,game_features_enabled:ready});
 }
