@@ -57,3 +57,14 @@ CREATE TABLE IF NOT EXISTS weekly_snapshots (
   week_start INTEGER PRIMARY KEY,
   recorded_at INTEGER NOT NULL DEFAULT (unixepoch())
 );
+
+-- One optional streak recovery per Eastern calendar month, browser-identified.
+CREATE TABLE IF NOT EXISTS jury_streak_saves (
+  voter_key_hash TEXT NOT NULL,
+  eastern_month TEXT NOT NULL,
+  saved_day TEXT NOT NULL,
+  created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  PRIMARY KEY (voter_key_hash, eastern_month),
+  UNIQUE (voter_key_hash, saved_day)
+);
+CREATE INDEX IF NOT EXISTS idx_jury_streak_saves_day ON jury_streak_saves(saved_day);
