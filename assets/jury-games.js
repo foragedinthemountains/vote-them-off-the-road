@@ -23,15 +23,18 @@
   async function loadBattle(){
     battleOptions.replaceChildren();
     battleNext.hidden=true;
-    battleStatus.textContent="Looking for two eligible driving moments…";
+    battleStatus.textContent="Looking for two cases in the same category this week…";
     try{
       const result=await requestJSON("/api/jury/battle");
       if(!result.ready||!result.pair){
-        battleStatus.textContent=result.message||"More cases are needed for head-to-head voting.";
+        battleStatus.textContent=result.message||"More same-category cases are needed for head-to-head voting.";
+        battleNext.textContent="Check for new matchups ↻";
         battleNext.hidden=false;
         return;
       }
-      battleStatus.textContent="Which driving moment is worse? Choose one.";
+      const isFunny=result.competition==="funniest";
+      battleStatus.textContent=result.message||
+        (isFunny?"Which funny moment is funnier?":"Which driving case is worse?");
       const pair=result.pair;
       const container=el("div","battle-grid");
       const buttons=[];
@@ -48,7 +51,7 @@
         card.append(el("span","battle-category",(incident.category||"other").replace(/_/g," ")),
           el("strong","",incident.title),
           el("p","",incident.description||"Read the incident and pick a side."),
-          el("span","battle-vote-label","This one is worse ↗"));
+          el("span","battle-vote-label",isFunny?"This one is funnier 😂":"This one is worse ↗"));
         card.addEventListener("click",async()=>{
           for(const b of buttons)b.disabled=true;
           battleStatus.textContent="Recording your head-to-head verdict…";
@@ -63,7 +66,10 @@
               const count=(result.results||[]).find(row=>row.id===winnerId)?.votes||0;
               b.append(el("span","battle-results",count+" jury picks for this side"));
             }
-            battleStatus.textContent="Verdict recorded. Head-to-head picks don't change the regular off/pass vote totals.";
+            battleStatus.textContent=isFunny?
+              "😂 Your comedy verdict contributes to Funniest of the Week without changing the normal Funny reaction total.":
+              "⚔️ Your matchup verdict contributes to Worst of the Week without changing the normal Off/Pass reaction totals.";
+            window.dispatchEvent(new Event("vtor:battle"));
             battleNext.hidden=false;
           }catch(error){
             battleStatus.textContent=error.message;
