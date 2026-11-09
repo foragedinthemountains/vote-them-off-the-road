@@ -16,8 +16,14 @@
 <section class="section"><div class="container owner-layout">
 <div class="owner-panel"><h2>Sign in or create a free account</h2>
 <p id="account-status" role="status" aria-live="polite">Checking account availability…</p>
-<div id="account-signin"></div>
-<div id="account-user" hidden><div id="account-user-button"></div></div>
+<div id="account-signin" hidden>
+  <button type="button" class="btn btn-primary" id="account-sign-in">Sign in</button>
+  <button type="button" class="btn btn-secondary" id="account-sign-up">Create free account</button>
+</div>
+<div id="account-user" hidden>
+  <strong id="account-user-name"></strong>
+  <button type="button" class="btn btn-secondary" id="account-sign-out">Sign out</button>
+</div>
 </div>
 <div class="owner-panel" id="account-incident-panel" hidden><h2>My incidents</h2>
 <p>Only incidents submitted while signed in or securely claimed by your account will appear here.</p>
@@ -29,5 +35,5 @@
 <p id="account-history-status" role="status"></p></div>
 </div></section></main>
 <footer class="footer"><div class="container"><div class="footer-bottom"><a href="/nh/">Back to voting</a> · <a href="/guidelines/">Rules</a> · <a href="/privacy/">Privacy</a></div></div></footer>
-<script src="/assets/public-account.js?v=20261109-accounts" defer></script>
-<script src="/assets/account-page.js?v=20261109-accounts" defer></script></body></html>
+<script src="/assets/public-account.js?v=20261109-workos" defer></script>
+<script src="/assets/account-page.js?v=20261109-workos" defer></script></body></html>
