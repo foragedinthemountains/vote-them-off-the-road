@@ -12,6 +12,8 @@
   const categorySelect=document.querySelector("#feed-category");
   const worstPanel=document.querySelector("#weekly-worst");
   const worstHeading=document.querySelector("#weekly-worst-heading");
+  const mainHeading=document.querySelector("#weekly-main-heading");
+  const mainIntro=document.querySelector("#weekly-main-intro");
   if(!grid||!status)return;
   let nextReset=null,weekEnd=null;
   const el=(tag,cls,value)=>{
@@ -202,6 +204,14 @@
       grid.replaceChildren();
       const labels=d.categories||{};
       const chosenCategory=categorySelect?.value||"";
+      const choiceLabel=labels[chosenCategory]||"All categories";
+      if (mainHeading) mainHeading.textContent=chosenCategory
+        ? "Weekly awards · "+choiceLabel : "Weekly awards";
+      if (mainIntro) mainIntro.textContent=chosenCategory==="funny_unexpected"
+        ? "😂 Funny / Unexpected cases are nominated for Funniest Moment of the Week. The official award requires five reactions and a Funny majority."
+        : chosenCategory
+          ? "Showing weekly voting awards for "+choiceLabel+". Results are community opinions, not verified traffic violations."
+          : "Browse weekly community favorites by category. Winners are determined by votes, not verified traffic violations.";
       if (worstPanel) worstPanel.hidden = chosenCategory === "funny_unexpected";
       if (worstHeading) worstHeading.textContent = chosenCategory && chosenCategory !== "funny_unexpected"
         ? "Worst of the Week · " + (labels[chosenCategory]||"Other")
