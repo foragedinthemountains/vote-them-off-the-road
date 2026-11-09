@@ -8,7 +8,7 @@
 -- GitHub-only draft. Do not apply a partial older revision of migration 0006.
 CREATE TABLE IF NOT EXISTS public_members (
   id TEXT PRIMARY KEY,
-  provider TEXT NOT NULL CHECK(provider IN ('workos')),
+  provider TEXT NOT NULL CHECK(length(provider) BETWEEN 2 AND 64),
   provider_subject TEXT NOT NULL,
   created_at INTEGER NOT NULL DEFAULT (unixepoch()),
   UNIQUE(provider, provider_subject)
