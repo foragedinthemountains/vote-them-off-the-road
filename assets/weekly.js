@@ -51,8 +51,8 @@
       const next=d.next_badge_at==null?"Top badge unlocked":
         Math.max(0,Number(d.next_badge_at)-votes)+" more unique cases to your next badge";
       progress.replaceChildren(
-        el("strong","","⚖ "+d.badge),
-        el("span","",votes+" cases judged · "+next),
+        el("strong","","⚖ YOUR JURY ACTIVITY"),
+        el("span","",votes+" unique cases judged"),
         el("span","jury-duty",d.duty_complete?"✓ Today's Jury Duty complete":
           goal===0?"No new cases available today":
           today+"/"+goal+" cases for today's Jury Duty"),
@@ -94,6 +94,7 @@
               const data=await response.json();
               if(!response.ok)throw Error(data.error||"Check-in failed");
               await loadProgress();
+              window.dispatchEvent(new Event("vtor:checkin"));
             }catch(error){
               checkin.append(el("p","jury-help",error.message));
               button.disabled=false;
