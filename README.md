@@ -298,7 +298,7 @@ XP is tracked by anonymous hashed browser identifier, not verified people. Switc
 
 ## Phase 6: WorkOS AuthKit public accounts, low-cost ownership and portability
 
-**Implementation:** account integration has been converted from the unpublished Clerk draft to **WorkOS AuthKit**. The existing Cloudflare Access admin sign-in is unchanged and MUST NOT be used for public visitors. Public sign-in is optional; browsing, voting, submitting, and anonymous Jury Duty all remain available without an account.
+**Implementation:** account integration has been prepared using **WorkOS AuthKit** instead of the earlier provider draft. The existing Cloudflare Access admin sign-in is unchanged and MUST NOT be used for public visitors. Public sign-in is optional; browsing, voting, submitting, and anonymous Jury Duty all remain available without an account.
 
 **Cost:** WorkOS AuthKit currently advertises 1 million monthly active users free, then $2,500/month per additional million MAUs. Use the default WorkOS hosted AuthKit domain (no paid custom domain) and ordinary email/social login. Cloudflare Workers/D1/R2 usage is billed separately. Free tiers and prices can change; `public_members` separates site user identity from the provider for future migration.
 
