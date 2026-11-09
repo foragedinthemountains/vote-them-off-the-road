@@ -3,7 +3,13 @@
   const feed = document.querySelector("#incident-feed");
   const status = document.querySelector("#feed-status");
   const buttons = [...document.querySelectorAll("[data-feed-sort]")];
-  let currentSort = "newest";
+  const sharedCaseId = new URLSearchParams(window.location.search).get("incident");
+  let currentSort = sharedCaseId ? "newest" : "unvoted";
+  let nextOffset = 0;
+  let hasMore = false;
+  let loading = false;
+  let requestVersion = 0;
+  const moreButton = document.querySelector("#feed-more");
   let currentCategory = "";
   const categorySelect = document.querySelector("#feed-category");
   const categoryLabels = {
@@ -21,23 +27,24 @@
     return item;
   }
 
-  function render(incidents) {
-    feed.replaceChildren();
+  function render(incidents, append = false) {
+    if (!append) feed.replaceChildren();
 
-    if (incidents.length === 0) {
+    if (incidents.length === 0 && !append) {
       const empty = element("div", "feed-empty");
       empty.append(
-        element("h3", "", "Nothing on the board. Yet."),
-        element("p", "", "The first New Hampshire incidents will show up here when submissions open.")
+        element("h3", "", currentSort === "unvoted" ? "You're all caught up!" : "Nothing on the board. Yet."),
+        element("p", "", currentSort === "unvoted" ?
+          "You've voted on every available case. Check out the other jury games or come back for new submissions." :
+          "New driving incidents will appear here when they're submitted.")
       );
       feed.append(empty);
       status.textContent = "No published incidents yet.";
       return;
     }
 
-    status.textContent = `Showing ${incidents.length} published incident${incidents.length === 1 ? "" : "s"}.`;
-
     for (const item of incidents) {
+      if (document.getElementById("incident-" + item.id)) continue;
       const card = element("article", "feed-card");
       const meta = element("p", "feed-meta");
       const location = item.location_label || "New Hampshire";
@@ -105,7 +112,9 @@
           item.pass_votes = result.pass_votes;
           item.my_vote = result.my_vote;
           updateVoteButtons();
-          voteFeedback.textContent = "Vote counted! You can change it any time.";
+          voteFeedback.textContent = currentSort === "unvoted" ?
+            "Verdict saved! Keep going with the other unjudged cases." :
+            "Vote counted! You can change it any time.";
           window.dispatchEvent(new Event("vtor:vote"));
         } catch (error) {
           voteFeedback.textContent = error.message || "Could not save your vote. Try again.";
@@ -202,39 +211,75 @@
     }
   }
 
-  async function load(sort) {
-    currentSort = sort;
+
+  async function load(sort, append = false) {
+    if (append && (loading || !hasMore)) return;
+    if (!append) {
+      currentSort = sort;
+      nextOffset = 0;
+      hasMore = false;
+    }
+    const version = ++requestVersion;
+    loading = true;
     for (const button of buttons) {
       button.setAttribute("aria-pressed", String(button.dataset.feedSort === sort));
     }
-    status.textContent = "Loading incidents…";
+    if (moreButton) {
+      moreButton.disabled = true;
+      moreButton.textContent = append ? "Loading more cases…" : "Load more cases ↓";
+      if (!append) moreButton.hidden = true;
+    }
+    if (!append) status.textContent = "Loading " +
+      (sort === "unvoted" ? "cases you haven't judged" : "incidents") + "…";
     try {
-      const response = await fetch(`/api/incidents?state=NH&sort=${encodeURIComponent(sort)}&category=${encodeURIComponent(currentCategory)}`, {
-        headers: { Accept: "application/json" },
-        cache: "no-store",
-      });
+      const response = await fetch(
+        `/api/incidents?state=NH&sort=${encodeURIComponent(sort)}&category=${encodeURIComponent(currentCategory)}&offset=${nextOffset}`,
+        { headers: { Accept: "application/json" }, credentials: "same-origin", cache: "no-store" }
+      );
       if (!response.ok) throw new Error("Feed request failed");
       const data = await response.json();
+      if (version !== requestVersion) return;
       if (!Array.isArray(data.incidents)) throw new Error("Unexpected feed response");
       const incidents = data.incidents;
-      const sharedId = new URLSearchParams(location.search).get("incident");
-      if (sharedId && !currentCategory && /^[a-zA-Z0-9_-]{6,80}$/.test(sharedId) &&
-          !incidents.some(i => i.id === sharedId)) {
-        const single = await fetch("/api/incidents/" + encodeURIComponent(sharedId),
+      if (!append && sharedCaseId && sort !== "unvoted" && !currentCategory &&
+          /^[a-zA-Z0-9_-]{6,80}$/.test(sharedCaseId) &&
+          !incidents.some(i => i.id === sharedCaseId)) {
+        const single = await fetch("/api/incidents/" + encodeURIComponent(sharedCaseId),
           { credentials: "same-origin", cache: "no-store" });
         if (single.ok) {
           const row = await single.json();
           if (row?.incident) incidents.unshift(row.incident);
         }
       }
-      render(incidents);
-      if (sharedId) {
-        const target = document.getElementById("incident-" + sharedId);
+      if (version !== requestVersion) return;
+      render(incidents, append);
+      nextOffset = Number(data.next_offset || 0);
+      hasMore = data.has_more === true;
+      const showing = feed.querySelectorAll(".feed-card").length;
+      if (showing) {
+        status.textContent = "Showing " + showing +
+          (sort === "unvoted" ? " cases you haven't judged yet." : " published cases.") +
+          (hasMore ? " More available below." : "");
+      }
+      if (!append && sharedCaseId) {
+        const target = document.getElementById("incident-" + sharedCaseId);
         if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
       }
     } catch (error) {
-      feed.replaceChildren();
-      status.textContent = "The incident feed couldn't load right now. Try refreshing this page.";
+      if (version !== requestVersion) return;
+      if (!append) feed.replaceChildren();
+      status.textContent = append ?
+        "Could not load more cases. Try again." :
+        "The incident feed couldn't load right now. Try refreshing this page.";
+    } finally {
+      if (version === requestVersion) {
+        loading = false;
+        if (moreButton) {
+          moreButton.hidden = !hasMore;
+          moreButton.disabled = false;
+          moreButton.textContent = "Load more cases ↓";
+        }
+      }
     }
   }
 
@@ -245,5 +290,10 @@
     currentCategory = categorySelect.value;
     load(currentSort);
   });
-  load("newest");
+  if (moreButton) moreButton.addEventListener("click", () => load(currentSort, true));
+  const juryShortcut = document.querySelector("#jury-find-unvoted");
+  if (juryShortcut) juryShortcut.addEventListener("click", () => {
+    load("unvoted");
+  });
+  load(currentSort);
 })();
