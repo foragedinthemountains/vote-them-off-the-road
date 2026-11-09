@@ -204,3 +204,20 @@ The browser-keyed `GET /api/my-stats` endpoint tracks anonymous distinct inciden
 - Shared links take the form `/nh/?incident=ID#incidents`. Facebook, X, and Reddit sharing URLs omit the fragment, leaving `/nh/?incident=ID`. When the matching public post is not in the first feed page, the browser fetches it by ID and scrolls to the case.
 - A Worker-first route for **`/nh/`** adds case-specific Open Graph and Twitter metadata on query-param requests. It only reads **published** incidents, uses an escaped case title, non-accusatory standard description and an optional public cover-photo URL, and returns `Cache-Control: private, no-store`. Other NH page requests continue through Cloudflare static assets.
 - Social networks may cache a preview after a link has been shared. Hiding/deleting a case removes the public site and its media response, but cannot guarantee immediate deletion of third-party cached previews.
+
+## Phase 4C: Return-visitor case discovery (no new migration)
+
+- The New Hampshire feed defaults to **Not voted yet** for ordinary visits, using the existing anonymous, hashed browser-voter ID. Arriving from a specific social permalink defaults to **Newest** so the shared incident appears even if the visitor already voted on it.
+- `GET /api/incidents?sort=unvoted&state=NH&offset=N` checks D1 for published incidents that do not have a vote associated with the current browser. On first visits with no cookie, all public incidents qualify. The endpoint accepts newest, top, week, or unvoted, optionally category, and uses 20-case pagination with `has_more` and `next_offset`. Offset is validated as an integer between 0 and 2000.
+- The **Load more cases** button appends the next 20 cases. Filter or sort changes start from the first page. Shared-case inserts are deduplicated when a paginated result later contains that same incident.
+- `GET /api/featured-case` picks one of the 60 most recently submitted **published** New Hampshire incidents using a deterministic hash of the Eastern day. The same incident is picked across visitors that day unless its publication status changes. It rechecks publication status before returning; unpublished/removed stories are excluded. Returns `next_reset_at` and shares the regular voting cookie.
+- The featured-card panel links to that case's normal voting buttons and provides one-click Facebook sharing. Ordinary off/pass votes and anonymous jury duty progress remain unchanged.
+- The Daily Jury Duty shortcut now switches the feed to **Not voted yet**. The homepage CTA navigates directly to the voting section.
+
+Acceptance checks:
+1. Open `/nh/`: the first filter is **Not voted yet**; today's featured card appears above the feed.
+2. Vote on an unjudged case. Refresh the unvoted feed: that case should disappear from the list, but continue appearing under **Newest**.
+3. Switch filters and click Load More when there are more than 20 cases. Each page should append without duplicates.
+4. Open a public `/nh/?incident=<id>#incidents` shared URL in a browser that has already voted on it. The specific case should be visible.
+5. Hide the featured incident in admin and reload. It must not be returned by the featured endpoint or visible in public feeds.
+6. Before migrations 0002 and 0003 are applied, basic new/unvoted filtering, pagination, and featured cases should still function because they use only original D1 tables.
