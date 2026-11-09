@@ -8,6 +8,66 @@
   const refresh = document.querySelector("#refresh-admin");
   if (!reportsNode || !incidentsNode || !statusNode) return;
   let busy = false;
+  let allReports = [];
+  const reportFilters = document.createElement("div");
+  reportFilters.className = "admin-report-filters";
+  const reasonFilter = document.createElement("select");
+  reasonFilter.setAttribute("aria-label", "Filter by report reason");
+  const statusFilter = document.createElement("select");
+  statusFilter.setAttribute("aria-label", "Filter by report status");
+  for (const [value, text] of [
+    ["", "Every report type"], ["removal_request", "Removal requests"],
+    ["harassment", "Harassment or threats"], ["private_info", "Private information"],
+    ["false_claim", "False claims"], ["copyright", "Copyright"],
+    ["other", "Other"]
+  ]) reasonFilter.add(new Option(text, value));
+  for (const [value, text] of [
+    ["", "Every status"], ["priority", "Automatically hidden · urgent"],
+    ["open", "Open"], ["reviewing", "Reviewing"],
+    ["resolved", "Resolved"], ["dismissed", "Dismissed"]
+  ]) statusFilter.add(new Option(text, value));
+  reportFilters.append(reasonFilter, statusFilter);
+  reportsNode.before(reportFilters);
+  const analytics = document.createElement("div");
+  analytics.className = "admin-analytics";
+  analytics.setAttribute("aria-label", "Incident and report analytics");
+  statsNode.after(analytics);
+  function refreshReportFilters() {
+    renderReports(allReports.filter(report =>
+      (!reasonFilter.value || report.reason === reasonFilter.value) &&
+      (!statusFilter.value || (statusFilter.value === "priority" ?
+        Boolean(report.auto_hidden_at && report.incident_status === "hidden" &&
+          ["open", "reviewing"].includes(report.status)) :
+        report.status === statusFilter.value))));
+  }
+  reasonFilter.addEventListener("change", refreshReportFilters);
+  statusFilter.addEventListener("change", refreshReportFilters);
+
+  function renderAnalytics(data) {
+    analytics.replaceChildren();
+    if (!data) return;
+    const title = document.createElement("h3");
+    title.textContent = "What's getting reported";
+    analytics.append(title);
+    const columns = document.createElement("div");
+    columns.className = "admin-analytics-columns";
+    for (const [heading, rows, key] of [
+      ["Report reasons", data.reasons || [], "reason"],
+      ["Driving moment categories", data.categories || [], "category"]
+    ]) {
+      const section = document.createElement("section");
+      section.className = "admin-analytics-column";
+      section.append(el("h4", "", heading));
+      for (const row of rows) {
+        section.append(el("p", "", 
+          ((key === "category" ? data.category_labels?.[row[key]] :
+            label(row[key])) || "Other") + ": " + row.count));
+      }
+      if (!rows.length) section.append(el("p", "", "No data yet."));
+      columns.append(section);
+    }
+    analytics.append(columns);
+  }
 
   function el(tag, className, value) {
     const node = document.createElement(tag);
@@ -74,7 +134,15 @@
         el("span", "admin-chip state-" + (report.status || "open"), label(report.status))
       );
       const meta = el("p", "admin-meta", label(report.reason) + " · " + formatDate(report.created_at));
-      const incident = el("p", "admin-subtext", "Incident status: " + label(report.incident_status || "missing"));
+      const incident = el("p", "admin-subtext", "Incident status: " + label(report.incident_status || "missing") +
+        (report.incident_category ? " · " + label(report.incident_category) : "") +
+        (report.unique_reporters ? " · " + report.unique_reporters + " distinct reporting browsers in 7 days" : ""));
+      if (report.auto_hidden_at && report.incident_status === "hidden" &&
+          ["open", "reviewing"].includes(report.status)) {
+        item.classList.add("admin-priority");
+        item.prepend(el("p", "admin-priority-label",
+          "⚠ AUTO-HIDDEN · PRIORITY REVIEW"));
+      }
       item.append(heading, meta, incident);
       if (report.details) item.append(el("p", "admin-details", report.details));
       if (report.contact_email) item.append(el("p", "admin-contact", "Reply email: " + report.contact_email));
@@ -125,6 +193,11 @@
         "🚫 " + incident.off_votes + " off · ✓ " + incident.pass_votes +
         " pass · " + incident.pending_reports + " pending reports");
       item.append(heading, meta, counts);
+      if (incident.auto_hidden_at && incident.status === "hidden") {
+        item.classList.add("admin-priority");
+        item.append(el("p", "admin-priority-label", "⚠ AUTO-HIDDEN · REVIEW FIRST"));
+      }
+      if (incident.category) item.append(el("p", "admin-meta", "Category: " + label(incident.category)));
       const actions = el("div", "admin-actions");
       if (incident.status === "published") {
         actions.append(actionButton("Hide from site", "action-danger", () =>
@@ -166,6 +239,10 @@
         (me.alerts_configured ? " · Email alerts configured" : " · Email alerts awaiting setup");
       const reports = reportsData.reports || [];
       const incidents = incidentsData.incidents || [];
+      allReports = reports;
+      signedIn.textContent += me.enhanced ?
+        " · Auto-hide after " + me.auto_hide_threshold + " independent reports across 3 networks" :
+        " · Moderation upgrade awaiting database migration";
       const open = reports.filter(r => ["open", "reviewing"].includes(r.status)).length;
       const live = incidents.filter(i => i.status === "published").length;
       statsNode.replaceChildren();
@@ -174,8 +251,10 @@
         stat.append(el("strong", "", value), el("span", "", description));
         statsNode.append(stat);
       }
-      renderReports(reports);
+      refreshReportFilters();
       renderIncidents(incidents);
+      const analyticsData = await getJson("/admin/api/analytics").catch(() => null);
+      renderAnalytics(analyticsData);
       statusNode.textContent = "Dashboard up to date.";
       statusNode.dataset.state = "ok";
     } catch (error) {
