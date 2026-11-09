@@ -38,6 +38,26 @@
       meta.textContent = date ? `${location} · ${date}` : location;
 
       card.append(meta, element("h3", "", item.title), element("p", "feed-description", item.description || ""));
+      if (Array.isArray(item.photos) && item.photos.length) {
+        const gallery = element("div", "feed-gallery");
+        gallery.setAttribute("aria-label", "Incident photos, swipe to see more");
+        for (let i = 0; i < item.photos.length; i++) {
+          const photo = item.photos[i];
+          if (typeof photo.url !== "string" || !photo.url.startsWith("/media/")) continue;
+          const link = element("a", "feed-photo");
+          link.href = photo.url;
+          link.target = "_blank";
+          link.rel = "noopener";
+          const img = element("img");
+          img.src = photo.url;
+          img.alt = "Incident photo " + (i + 1) + " of " + item.photos.length;
+          img.loading = "lazy";
+          link.append(img);
+          gallery.append(link);
+        }
+        card.append(gallery);
+        if (item.photos.length > 1) card.append(element("p", "gallery-hint", "Swipe to view all " + item.photos.length + " photos"));
+      }
       const votes = element("div", "feed-vote-counts");
       votes.append(
         element("span", "", `🚫 Vote off: ${Number(item.off_votes) || 0}`),
