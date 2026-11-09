@@ -1,58 +1,53 @@
-# Vote Them Off the Road: Launch Preview
+# Vote Them Off the Road
 
-This is a static preview website (no framework or database required) for **VoteThemOffTheRoad.com**.
+Source code for **https://votethemofftheroad.com/**. New Hampshire is the first launch state.
 
-## Included
+## Current state
 
-- `/` Homepage
-- `/nh/` New Hampshire launch page
-- `/guidelines/` Preview community rules
-- `/privacy/` Preview privacy notice
-- `/404.html` Useful not-found page
-- Mobile-responsive styling, SVG favicon, sitemap, Cloudflare security headers
+- Responsive static homepage, New Hampshire page, community guidelines and privacy notice.
+- Full-stack Cloudflare Worker with static asset fallback.
+- Cloudflare D1 database binding named `DB`, pointing to `votethemofftheroad-prod`.
+- The schema in `migrations/0001_initial_schema.sql` defines `incidents`, `incident_media`, `votes`, and `reports`.
+- **Read-only** incident endpoints and a New Hampshire listing that shows the empty state until actual submissions are available.
+- No public posting, uploading, voting, commenting, or reporting endpoints are enabled yet.
 
-**Not yet included:** submission forms, photo uploads, real voting, user accounts, reporting/removal tools, analytics, or a Facebook page link. The sample incident on the homepage is labeled fictional and voting controls are illustrative, not buttons.
+## Architecture
 
-## Local preview
+- GitHub repository: `foragedinthemountains/vote-them-off-the-road`
+- Deployment: Git-connected Cloudflare Worker `vote-them-off-the-road`
+- Worker configuration: `wrangler.jsonc`
+- Backend entry point: `src/worker.js`
+- Static assets served from the repository root; `.assetsignore` prevents Worker source, migrations, and config being published as assets.
+- Production domain: `votethemofftheroad.com`
+- Database: Cloudflare D1.
 
-In the project folder, run:
+## Read-only API
 
-```bash
-python -m http.server 8000
-```
+- `GET /api/health` returns `{"ok":true,"database":"connected"}` if D1 is bound and reachable.
+- `GET /api/incidents?state=NH&sort=newest` returns the latest 20 published incidents.
+- `GET /api/incidents?state=NH&sort=top` sorts by votes to vote off.
+- `GET /api/incidents/{id}` returns a published incident or 404.
+- All API responses disable caching so hidden/removed content is not retained in feed caches.
+- Methods other than GET are disabled. No arbitrary SQL is derived from user input.
 
-Then visit http://localhost:8000 in a browser. You can also use `npx serve .` if available.
+## Getting the database ready
 
-## Deploy through GitHub + Cloudflare Pages (recommended)
+The SQL schema must be executed against the **production** D1 database, using the D1 dashboard's Console or the Wrangler D1 migration tooling. The presence of the file in GitHub does not execute the migration.
 
-1. Create a new GitHub repository (suggestion: `vote-them-off-the-road`).
-2. Upload **all files and folders in this directory** to the repository root (NOT the enclosing folder). The repo root should contain `index.html` and `assets/`, `nh/`, `guidelines/`, and `privacy/`.
-3. In Cloudflare, go to **Workers & Pages → Create application → Pages → Import an existing Git repository**.
-4. Select the repository. Choose **no framework**; set the build command to `exit 0` and the build output directory to `.` (repository root). Leave root directory at its default. Cloudflare documents `exit 0` for a static HTML project.
-5. Deploy to a temporary `*.pages.dev` address. Check the homepage and `/nh/` link.
-6. Add the purchased domain to Cloudflare and, for the root domain, update your registrar's domain nameservers to the two Cloudflare nameservers assigned to YOUR account. Preserve any existing email-related DNS records.
-7. Open **Pages project → Custom domains → Set up a domain** and add `votethemofftheroad.com`. Add `www` separately if desired and configure a redirect to the primary domain.
+## Deployment
 
-Cloudflare docs: https://developers.cloudflare.com/pages/get-started/git-integration/ and https://developers.cloudflare.com/pages/configuration/custom-domains/
+Cloudflare Builds deploys the Worker from GitHub using `wrangler.jsonc`. A new commit to `main` should trigger a deployment. Confirm the latest deployment is healthy before publishing changes to the public.
 
-## After the preview is live
+Do not commit credentials or API secrets. Turnstile secrets and any future admin credentials belong in Cloudflare Worker secrets, not in this public repository.
 
-- Customize the homepage and add a genuine Facebook page URL once known.
-- Add user-generated incident submissions, image/video uploads, clear reporting tools, and a straightforward removal workflow. Plan for routine posts to appear without pre-approval, with intervention when material is reported or violates site rules.
-- Add one-user-one-vote (or other abuse-resistant) voting, public rankings, and state pages backed by a database (e.g., Supabase).
-- Add Cloudflare Turnstile to submission forms with mandatory server-side token verification.
-- Update privacy disclosures and legal terms before collecting or publishing user content.
-- Consider conversion to SvelteKit to support full server-rendered state pages and submissions, reusing the existing visual design.
+## Next milestones
 
-## Facebook Page copy
+1. Confirm both `/api/health` and `/api/incidents?state=NH` return expected JSON.
+2. Set up Cloudflare Turnstile with mandatory server-side token verification and rate limiting.
+3. Add a simple real incident submission form, with validation and immediate reporting/removal tools. Routine submissions need not require admin preapproval.
+4. Set up R2 image storage with validated file types, size limits, and safe delivery.
+5. Add votes with abuse controls and dynamic rankings; expand video support with spending limits.
+6. Add individual shareable incident pages, Facebook page integration, analytics, and search indexing.
+7. Expand to additional states and monetization after real audience growth.
 
-Page category: **Entertainment website** or similar category actually offered by Facebook.
-
-Short bio:
-> Bad driving. Public verdict. 🚧 New Hampshire first. Share the ridiculous, vote on the outrageous, and let the internet decide. Coming soon!
-
-Long About:
-> Vote Them Off the Road is a community-powered place for the most ridiculous moments behind the wheel. From head-scratching parking jobs to unbelievable road maneuvers, we'll feature driving stories and clips and let visitors cast their votes. We're starting in New Hampshire and plan to expand state by state. We're here for the laughs, memorable moments, and outrageous votes. Follow for launch updates!
-
-Suggested first pinned post:
-> 🚧 New Hampshire, you're first! We’re building Vote Them Off the Road, a place to share the wildest driving moments and let the community vote on them. The website preview is on the way, with submissions and voting to follow. Give the page a follow. We’ll announce when nominations open!
+The goal is entertainment and community voting, not driver identification. Ordinary public-road footage is not subject to a blanket face/plate blurring requirement, but threats, harassment and targeted publication of private contact details are prohibited.
