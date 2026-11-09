@@ -153,7 +153,10 @@
     ctx.fillStyle="#f7c744";ctx.font="bold 32px sans-serif";
     const emojiLine = "🚫 "+Number(row.off_votes||0)+" off   ✓ "+Number(row.pass_votes||0)+" pass" +
       (Number(row.funny_votes||0)>0?"   😂 "+row.funny_votes+" funny":"");
-    ctx.fillText(emojiLine,60,525);
+    ctx.fillText(emojiLine,60,502);
+    ctx.font="bold 24px sans-serif";
+    ctx.fillText("⚔️ Head-to-head wins: "+Number(row.battle_wins||0)+
+      "    Weekly score: "+Number(row.score??row.worst_score??row.funny_score??0),60,545);
     ctx.fillStyle="#b4c5c2";ctx.font="22px sans-serif";
     ctx.fillText("Community votes · Not a verified traffic violation",60,588);
     return canvas;
@@ -199,7 +202,7 @@
       }
       status.textContent=(isCurrent?"Current week: ":"Week: ")+
         easternDate(d.week_start)+" to "+easternDate(d.week_end-1)+
-        " · "+d.minimum_votes+" total votes required for an official podium place."+
+        " · "+d.minimum_votes+" combined reactions or head-to-head points and a majority verdict required for an official podium place."+
         (!isCurrent && !d.archived?" Historical figures may change until archived.":"");
       grid.replaceChildren();
       const labels=d.categories||{};
@@ -221,15 +224,19 @@
       for(const row of podiums){
         const card=el("article","weekly-card"+(row.qualified?"":" provisional"));
         const rank={1:"🥇",2:"🥈",3:"🥉"}[row.rank]||"#"+row.rank;
+        const battleWins=Number(row.battle_wins||0);
+        const worstPoints=Number(row.worst_score??(Number(row.off_votes||0)+battleWins));
         card.append(el("span","weekly-category",rank+" "+(labels[row.category]||"Other")),
           el("strong","",row.title),
-          el("span","weekly-votes","🚫 "+row.off_votes+" off · ✓ "+row.pass_votes+
-            " pass"+(row.funny_votes?" · 😂 "+row.funny_votes+" funny":"")));
+          el("span","weekly-votes","🚫 "+row.off_votes+" Off votes + ⚔️ "+battleWins+
+            " head-to-head wins = "+worstPoints+" Worst points"),
+          el("span","weekly-votes","✓ "+row.pass_votes+" Pass"+
+            (row.funny_votes?" · 😂 "+row.funny_votes+" Funny":"")));
         card.append(el("p","weekly-qualification",row.qualified?
           (d.archived?"Final weekly podium":"Qualified for the weekly podium"):
           (Number(row.total_votes)>=Number(d.minimum_votes) ?
-            "Not qualified: fewer Off votes than Pass and Funny combined" :
-            "Provisional · needs "+Math.max(0,d.minimum_votes-row.total_votes)+" more votes")));
+            "Not qualified: combined Worst points must exceed Pass and Funny reactions" :
+            "Provisional · needs "+Math.max(0,d.minimum_votes-row.total_votes)+" more votes or duel points")));
         const actions=el("div","weekly-card-actions");
         const view=el("a","jury-next-button","Vote on this case");
         view.href="/nh/?incident="+encodeURIComponent(row.id)+"#incidents";
@@ -262,6 +269,7 @@
     loadWeekly(Number(weekSelect?.value||0)));
   if(weekSelect)weekSelect.addEventListener("change",()=>loadWeekly(Number(weekSelect.value)));
   window.addEventListener("vtor:vote",()=>{loadProgress();loadWeekly(Number(weekSelect?.value||0));});
+  window.addEventListener("vtor:battle",()=>loadWeekly(Number(weekSelect?.value||0)));
   setInterval(tick,1000);
   loadProgress();
   loadWeekly(0);
