@@ -34,3 +34,23 @@
 .feed-vote-feedback:empty{display:none}
 .feed-vote-hint{font-size:11px;color:var(--muted);margin:7px 0 0}
 @media(max-width:480px){.feed-vote-actions{grid-template-columns:1fr}}
+
+/* Jury weekly rankings and participatory badges */
+.jury-section{background:#e8e2d2}
+.jury-intro{color:#4d585b;max-width:760px}
+.jury-progress{display:flex;justify-content:space-between;align-items:center;gap:18px;flex-wrap:wrap;background:#152329;color:#fff;padding:20px 24px;border-radius:14px;margin:25px 0}
+.jury-progress strong{font-size:20px}.jury-progress span{font-size:14px;color:#f9d676;font-weight:700}
+.weekly-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,250px),1fr));gap:15px;margin:18px 0 30px}
+.weekly-card{display:block;padding:22px;background:var(--white);border:2px solid var(--ink);border-radius:15px;box-shadow:4px 4px 0 var(--ink)}
+.weekly-card:hover{transform:translateY(-3px)}
+.weekly-card strong{display:block;font-family:'Barlow Condensed',Impact,sans-serif;text-transform:uppercase;font-size:26px;line-height:1.1;margin:9px 0}
+.weekly-category{font-size:11px;font-weight:900;letter-spacing:.09em;text-transform:uppercase;color:#9f5829}
+.weekly-votes{font-size:13px;font-weight:800;color:#4b5b54}
+.jury-category-summary{margin:24px 0 30px}.jury-category-summary h3{font-size:28px}
+.category-tallies{display:flex;flex-wrap:wrap;gap:9px}
+.category-tallies span{padding:8px 12px;border-radius:30px;background:#fffefa;font-weight:800;font-size:12px}
+.feed-category-label{font-size:12px;text-transform:uppercase;font-weight:900;align-self:center}
+.feed-filters select{font:inherit;font-size:13px;font-weight:700;border:2px solid var(--ink);background:#fffefa;border-radius:9px;padding:9px 12px;max-width:240px}
+.feed-filters select:disabled{opacity:.5}
+.feed-share{display:inline-flex;margin:12px 14px 0 0;padding:7px 9px;border:1px solid #9b947f;border-radius:7px;background:#f4eedf;color:#273b38;font-size:12px;font-weight:800;cursor:pointer}
+.feed-card:target{outline:4px solid var(--yellow);outline-offset:4px}
