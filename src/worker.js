@@ -45,11 +45,64 @@ async function reportNetworkHash(request, env) {
   const signature = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(ip));
   return Array.from(new Uint8Array(signature), b => b.toString(16).padStart(2, "0")).join("");
 }
-function currentWeekStart() {
-  const d = new Date();
-  const day = d.getUTCDay();
-  return Math.floor(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() -
-    ((day + 6) % 7)) / 1000);
+
+const EASTERN_TZ = "America/New_York";
+const easternFormatter = new Intl.DateTimeFormat("en-US", {
+  timeZone: EASTERN_TZ, year: "numeric", month: "2-digit", day: "2-digit",
+  hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23"
+});
+function easternParts(date) {
+  return Object.fromEntries(easternFormatter.formatToParts(date)
+    .filter(p => p.type !== "literal").map(p => [p.type, Number(p.value)]));
+}
+function easternDateKey(date = new Date()) {
+  const p = easternParts(date);
+  return [p.year, String(p.month).padStart(2,"0"), String(p.day).padStart(2,"0")].join("-");
+}
+function shiftDateKey(key, days) {
+  return new Date(Date.parse(key + "T12:00:00Z") + days * 86400000)
+    .toISOString().slice(0, 10);
+}
+function easternMidnight(key) {
+  const [year, month, day] = key.split("-").map(Number);
+  const target = Date.UTC(year, month - 1, day);
+  let guess = target + 5 * 3600000;
+  for (let i = 0; i < 4; i++) {
+    const p = easternParts(new Date(guess));
+    guess += target - Date.UTC(p.year,p.month-1,p.day,p.hour,p.minute,p.second);
+  }
+  return Math.floor(guess / 1000);
+}
+function easternWeekKey(offset = 0, date = new Date()) {
+  const key = easternDateKey(date);
+  const dow = new Date(key + "T12:00:00Z").getUTCDay();
+  return shiftDateKey(key,-((dow+6)%7)-offset*7);
+}
+function currentWeekStart() { return easternMidnight(easternWeekKey()); }
+function nextEasternWeekStart() {
+  return easternMidnight(shiftDateKey(easternWeekKey(),7));
+}
+function easternGameDay(date = new Date()) {
+  const key = easternDateKey(date);
+  return { key, start: easternMidnight(key),
+    nextReset: easternMidnight(shiftDateKey(key,1)) };
+}
+let gameSchemaCache = { until: 0, ready: false };
+async function gameSchemaReady(env) {
+  if (!env.DB) return false;
+  if (gameSchemaCache.until > Date.now()) return gameSchemaCache.ready;
+  try {
+    await env.DB.prepare("SELECT voter_key_hash FROM jury_daily_checkins LIMIT 0").all();
+    await env.DB.prepare("SELECT week_start FROM weekly_awards LIMIT 0").all();
+    await env.DB.prepare("SELECT left_id FROM battle_votes LIMIT 0").all();
+    await env.DB.prepare("SELECT week_start FROM weekly_predictions LIMIT 0").all();
+    await env.DB.prepare("SELECT week_start FROM weekly_category_results LIMIT 0").all();
+    await env.DB.prepare("SELECT week_start FROM weekly_snapshots LIMIT 0").all();
+    gameSchemaCache = { until:Date.now()+30000, ready:true };
+  } catch {
+    gameSchemaCache = { until:Date.now()+30000, ready:false };
+  }
+  return gameSchemaCache.ready;
 }
 async function myParticipation(request, env) {
   const hash = await voterHash(request);
