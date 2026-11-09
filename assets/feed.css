@@ -216,3 +216,50 @@
 #feed-category:not(:disabled){opacity:1;cursor:pointer;background:#fffefa}
 #weekly-worst[hidden],#funniest[hidden]{display:none !important}
 .weekly-award-section h3{font-size:clamp(24px,3vw,36px);margin:18px 0 8px}
+
+/* Jury XP profile, daily missions and Guess the Verdict */
+.jury-xp-panel{border-radius:18px;padding:24px;background:#fffefa;border:2px solid #cfbf95;margin:22px 0 24px}
+.jury-xp-header{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:18px}
+.jury-rank-info{display:flex;align-items:center;gap:14px}
+.jury-rank-icon{font-size:42px}
+.jury-xp-eyebrow{font-size:11px;letter-spacing:.12em;font-weight:900;color:#8d5c2d}
+.jury-rank-text h3{font-size:clamp(27px,3.5vw,38px);margin:4px 0 0}
+.jury-xp-totals{display:flex;align-items:flex-end;flex-direction:column;gap:5px}
+.jury-xp-totals strong{font-size:clamp(26px,3vw,40px);font-variant-numeric:tabular-nums;color:#213e36}
+.jury-xp-totals span{font-size:12px;font-weight:900;color:#66755e}
+.jury-rank-track{height:17px;margin-top:18px;background:#d6d9d1;border:1px solid #a4aba0;border-radius:30px;overflow:hidden}
+.jury-rank-fill{height:100%;display:block;border-radius:30px;background:#d6a32f;transition:width .4s}
+.jury-rank-next{font-size:12px;color:#5a655d;font-weight:900;text-align:right;margin-top:9px}
+.jury-missions-intro{display:flex;align-items:baseline;justify-content:space-between;gap:20px;flex-wrap:wrap;margin:24px 0 13px}
+.jury-missions-intro h3{font-size:29px;margin:0}
+.jury-missions-intro p{font-size:11px;color:#5e6861;max-width:400px;margin:0}
+.jury-mission-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.jury-mission{border:1px solid #c7c8bd;background:#f4f2e9;border-radius:13px;padding:17px;display:flex;flex-direction:column;gap:10px}
+.jury-mission.complete{background:#e2f1d8;border-color:#7d9b6e}
+.jury-mission.unavailable{opacity:.55}
+.jury-mission-top{display:flex;align-items:start;justify-content:space-between;gap:10px}
+.jury-mission-top strong{font-size:14px}
+.jury-mission-reward{white-space:nowrap;border-radius:25px;background:#f7d778;color:#4b350d;padding:5px 8px;font-weight:900;font-size:11px}
+.jury-mission p{font-size:12px;color:#505e58;margin:0}
+.jury-mission-progress{margin-top:auto;font-size:11px;color:#2d5845;font-weight:900}
+.jury-mission-link{font-size:12px;font-weight:900;color:#235e4b;text-decoration:underline}
+.jury-xp-unavailable{font-size:14px;color:#765b2d;font-weight:800}
+#verdict-guess-panel .verdict-case-title{display:block;font-size:21px;line-height:1.2;margin:15px 0 9px}
+.verdict-case-description{font-size:13px;line-height:1.45;color:#5a635d}
+.verdict-guess-options{display:grid;grid-template-columns:1fr;gap:9px;margin:17px 0}
+.verdict-guess-choice{padding:12px 14px;text-align:left;border:2px solid #435f57;border-radius:9px;background:#f7f3e8;color:#1b332b;font:inherit;font-size:13px;font-weight:900;cursor:pointer}
+.verdict-guess-choice:hover:not(:disabled){background:#f7d88e}
+.verdict-guess-choice:disabled{cursor:default}
+.verdict-guess-choice.picked{background:#f7c744}
+#verdict-guess-reveal{background:#f2ead2;border-radius:12px;padding:15px;margin-top:14px}
+#verdict-guess-reveal:empty{display:none}
+#verdict-guess-reveal h4{font-size:22px;margin:0 0 9px}
+#verdict-guess-reveal p{font-size:13px;margin:9px 0}
+.verdict-guess-tallies{display:flex;flex-wrap:wrap;gap:7px}
+.verdict-guess-tallies span{font-size:11px;background:white;padding:8px;border-radius:9px;font-weight:900}
+.verdict-guess-award{font-size:12px;color:#2e674f;font-weight:900}
+.feed-share-verdict{display:inline-flex;align-items:center;justify-content:center;min-height:42px;background:#f7c744;color:#293322;border:2px solid #956925;border-radius:8px;padding:9px 12px;font:inherit;font-size:12px;font-weight:900;cursor:pointer}
+.feed-share-verdict:hover:not(:disabled){background:#ffe5a3}
+.feed-share-verdict:disabled{opacity:.55;cursor:wait}
+.feed-share-verdict[hidden]{display:none}
+@media(max-width:710px){.jury-mission-grid{grid-template-columns:1fr}.jury-xp-panel{padding:16px}.jury-xp-totals{align-items:flex-start}.jury-rank-icon{font-size:32px}}
