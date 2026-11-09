@@ -233,7 +233,8 @@ async function weeklyBoard(env, offset=0) {
       "COUNT(CASE WHEN v.choice='pass' THEN 1 END) AS pass_votes," +
       "COUNT(CASE WHEN v.choice='funny' THEN 1 END) AS funny_votes " +
       "FROM incidents i LEFT JOIN " + vt + " v ON v.incident_id=i.id " +
-      "WHERE i.state_code='NH' AND i.status='published' AND i.created_at>=? AND i.created_at<? " +
+      "WHERE i.state_code='NH' AND i.status='published' AND i.category<>'funny_unexpected' " +
+      "AND i.created_at>=? AND i.created_at<? " +
       "GROUP BY i.id HAVING COUNT(v.incident_id)>0 " +
       "ORDER BY i.category,off_votes DESC,COUNT(v.incident_id) DESC,i.created_at DESC LIMIT 300"
     ).bind(weekStart,weekEnd).all();
@@ -326,7 +327,8 @@ async function snapshotPreviousWeek(env, scheduledAt = Date.now()) {
       "COUNT(CASE WHEN v.choice='pass' THEN 1 END) AS pass_votes," +
       "COUNT(CASE WHEN v.choice='funny' THEN 1 END) AS funny_votes " +
       "FROM incidents i LEFT JOIN " + vt + " v ON v.incident_id=i.id " +
-      "WHERE i.state_code='NH' AND i.status='published' AND i.created_at>=? AND i.created_at<? " +
+      "WHERE i.state_code='NH' AND i.status='published' AND i.category<>'funny_unexpected' " +
+      "AND i.created_at>=? AND i.created_at<? " +
       "GROUP BY i.id HAVING COUNT(v.incident_id)>=? AND " +
       "COUNT(CASE WHEN v.choice='off' THEN 1 END)>(COUNT(CASE WHEN v.choice='pass' THEN 1 END)+COUNT(CASE WHEN v.choice='funny' THEN 1 END)) " +
       "ORDER BY i.category,off_votes DESC,COUNT(v.incident_id) DESC,i.created_at DESC LIMIT 300"
