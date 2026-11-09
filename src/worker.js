@@ -219,6 +219,58 @@ async function weeklyBoard(env, offset=0) {
     categories:behaviorCategories,category_counts:counts.results||[]});
 }
 
+
+async function snapshotPreviousWeek(env, scheduledAt = Date.now()) {
+  if (!(await featureSchemaReady(env)) || !(await gameSchemaReady(env))) return;
+  const d=new Date(scheduledAt);
+  const p=easternParts(d);
+  const key=easternDateKey(d);
+  const dow=new Date(key+"T12:00:00Z").getUTCDay();
+  // Trigger fires at both 04:05 and 05:05 UTC; only one is 00:05 Eastern.
+  if (dow!==1 || p.hour!==0 || p.minute!==5) return;
+  const lastMonday=easternWeekKey(1,d);
+  const start=easternMidnight(lastMonday);
+  const end=easternMidnight(shiftDateKey(lastMonday,7));
+  const existing=await env.DB.prepare("SELECT 1 FROM weekly_snapshots WHERE week_start=?")
+    .bind(start).first();
+  if (existing) return;
+  const [votes,counts]=await Promise.all([
+    env.DB.prepare(
+      "SELECT i.id,i.category,COUNT(CASE WHEN v.choice='off' THEN 1 END) AS off_votes," +
+      "COUNT(CASE WHEN v.choice='pass' THEN 1 END) AS pass_votes " +
+      "FROM incidents i LEFT JOIN votes v ON v.incident_id=i.id " +
+      "WHERE i.state_code='NH' AND i.status='published' AND i.created_at>=? AND i.created_at<? " +
+      "GROUP BY i.id HAVING COUNT(v.incident_id)>=? " +
+      "ORDER BY i.category,off_votes DESC,COUNT(v.incident_id) DESC,i.created_at DESC LIMIT 300"
+    ).bind(start,end,weeklyMinimumVotes(env)).all(),
+    env.DB.prepare(
+      "SELECT category,COUNT(*) AS count FROM incidents " +
+      "WHERE state_code='NH' AND status='published' AND created_at>=? AND created_at<? GROUP BY category"
+    ).bind(start,end).all()
+  ]);
+  const ranks=new Map();
+  const statements=[];
+  for(const row of votes.results||[]) {
+    const rank=(ranks.get(row.category)||0)+1;
+    ranks.set(row.category,rank);
+    if(rank>3)continue;
+    statements.push(env.DB.prepare(
+      "INSERT OR IGNORE INTO weekly_awards(week_start,category,rank,incident_id,off_votes,pass_votes) " +
+      "VALUES(?,?,?,?,?,?)"
+    ).bind(start,row.category,rank,row.id,Number(row.off_votes),Number(row.pass_votes)));
+  }
+  const totals=new Map((counts.results||[]).map(row=>[row.category,Number(row.count)]));
+  for(const category of Object.keys(behaviorCategories)) {
+    statements.push(env.DB.prepare(
+      "INSERT OR IGNORE INTO weekly_category_results(week_start,category,incident_count) VALUES(?,?,?)"
+    ).bind(start,category,totals.get(category)||0));
+  }
+  // Commit the snapshot marker LAST, atomically with winners and category counts.
+  statements.push(env.DB.prepare("INSERT OR IGNORE INTO weekly_snapshots(week_start) VALUES(?)").bind(start));
+  await env.DB.batch(statements);
+  console.log("Finalized Eastern weekly results", {week_start:start,winners:statements.length-10});
+}
+
 const maxPhotos = 5;
 const maxPhotoBytes = 5 * 1024 * 1024;
 const maxRequestBytes = 32 * 1024 * 1024;
@@ -955,6 +1007,9 @@ async function adminRequest(request, env, pathname) {
 }
 
 export default {
+  async scheduled(controller, env) {
+    await snapshotPreviousWeek(env, controller.scheduledTime);
+  },
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const { pathname } = url;
