@@ -647,7 +647,10 @@ async function voteIncident(id, request, env) {
   const parsed = await parseBody(request);
   if (parsed.error) return json({ error: parsed.error }, parsed.status);
   const choice = parsed.value.choice;
-  if (choice !== "off" && choice !== "pass") return json({ error: "Invalid vote choice" }, 400);
+  const funnyEnabled=await humorSchemaReady(env);
+  const vt=funnyEnabled ? "votes_v4" : "votes";
+  if (!["off","pass",...(funnyEnabled?["funny"]:[])].includes(choice))
+    return json({error: funnyEnabled?"Invalid reaction choice":"Funny reactions are not active until migration 0004 is applied"},400);
   // Per-network throttling deters rapid automated voting; Cloudflare limits are approximate.
   const ip = request.headers.get("CF-Connecting-IP") || "unknown";
   const allowed = await env.VOTE_RATE_LIMITER.limit({ key: "ip:" + ip });
@@ -655,7 +658,7 @@ async function voteIncident(id, request, env) {
     return json({ error: "Too many votes right now. Try again shortly." }, 429);
   }
   await env.DB.prepare(`
-    INSERT INTO votes (incident_id, voter_key_hash, choice)
+    INSERT INTO ${vt} (incident_id, voter_key_hash, choice)
     SELECT ?, ?, ? WHERE EXISTS (
       SELECT 1 FROM incidents WHERE id = ? AND status = 'published'
     )
@@ -670,26 +673,29 @@ async function voteIncident(id, request, env) {
   const counts = await env.DB.prepare(`
     SELECT
       COUNT(CASE WHEN choice = 'off' THEN 1 END) AS off_votes,
-      COUNT(CASE WHEN choice = 'pass' THEN 1 END) AS pass_votes
-    FROM votes WHERE incident_id = ?
+      COUNT(CASE WHEN choice = 'pass' THEN 1 END) AS pass_votes,
+      COUNT(CASE WHEN choice = 'funny' THEN 1 END) AS funny_votes
+    FROM ${vt} WHERE incident_id = ?
   `).bind(id).first();
   return json({
     ok: true, id, my_vote: choice,
     off_votes: Number(counts?.off_votes || 0),
-    pass_votes: Number(counts?.pass_votes || 0)
+    pass_votes: Number(counts?.pass_votes || 0),
+    funny_votes: Number(counts?.funny_votes || 0), funny_enabled: funnyEnabled
   });
 }
 
 const summaryColumns = `
   i.id, i.state_code, i.location_label, i.title, i.description, i.created_at,
   COUNT(CASE WHEN v.choice = 'off' THEN 1 END) AS off_votes,
-  COUNT(CASE WHEN v.choice = 'pass' THEN 1 END) AS pass_votes
+  COUNT(CASE WHEN v.choice = 'pass' THEN 1 END) AS pass_votes,
+  COUNT(CASE WHEN v.choice = 'funny' THEN 1 END) AS funny_votes
 `;
 const summaryColumnsWithCategory = summaryColumns.replace("i.created_at,",
   "i.created_at, i.category,");
-const summaryJoin = `
+const summaryJoin = vt => `
   FROM incidents i
-  LEFT JOIN votes v ON v.incident_id = i.id
+  LEFT JOIN ${vt} v ON v.incident_id = i.id
 `;
 const summaryGroup = `
   GROUP BY i.id, i.state_code, i.location_label, i.title, i.description, i.created_at
@@ -700,6 +706,7 @@ async function listIncidents(url, env, request) {
   const state=(url.searchParams.get("state")||"NH").toUpperCase();
   const sort=url.searchParams.get("sort")||"newest";
   const category=url.searchParams.get("category")||"";
+  const vt=await activeVoteTable(env);
   const rawOffset=url.searchParams.get("offset")||"0";
   const offset=Number(rawOffset);
   if(!/^[A-Z]{2}$/.test(state))return json({error:"Invalid state"},400);
@@ -718,17 +725,17 @@ async function listIncidents(url, env, request) {
   if(category){filter+=" AND i.category = ?";binds.push(category);}
   if(sort==="week"){filter+=" AND i.created_at >= ?";binds.push(currentWeekStart());}
   if(sort==="unvoted" && voter){
-    filter+=" AND NOT EXISTS (SELECT 1 FROM votes v2 WHERE v2.incident_id=i.id AND v2.voter_key_hash=?)";
+    filter+=" AND NOT EXISTS (SELECT 1 FROM " + vt + " v2 WHERE v2.incident_id=i.id AND v2.voter_key_hash=?)";
     binds.push(voter);
   }
   // Fetch one extra row to determine whether Load More should appear.
   const result=await env.DB.prepare(`
-    SELECT ${columns} ${summaryJoin}
+    SELECT ${columns} ${summaryJoin(vt)}
     ${filter}
     ${summaryGroup} ORDER BY ${order} LIMIT 21 OFFSET ?
   `).bind(...binds,offset).all();
   const rows=result.results||[];
-  return json({state,sort,category,offset,has_more:rows.length>20,
+  return json({state,sort,category,funny_enabled:await humorSchemaReady(env),offset,has_more:rows.length>20,
     next_offset:offset+Math.min(20,rows.length),
     incidents:await attachMyVotes(await attachImages(rows.slice(0,20),env),request,env)
   });
@@ -757,14 +764,15 @@ async function featuredCase(request,env) {
 
 async function getIncident(id, env, request) {
   if (!idPattern.test(id)) return json({ error: "Not found" }, 404);
+  const vt=await activeVoteTable(env);
   const columns = await featureSchemaReady(env) ? summaryColumnsWithCategory : summaryColumns;
   const row = await env.DB.prepare(`
-    SELECT ${columns} ${summaryJoin}
+    SELECT ${columns} ${summaryJoin(vt)}
     WHERE i.id = ? AND i.status = 'published'
     ${summaryGroup} LIMIT 1
   `).bind(id).first();
   return row
-    ? json({ incident: (await attachMyVotes(await attachImages([row], env), request, env))[0] })
+    ? json({ incident: (await attachMyVotes(await attachImages([row], env), request, env))[0], funny_enabled:await humorSchemaReady(env) })
     : json({ error: "Not found" }, 404);
 }
 
