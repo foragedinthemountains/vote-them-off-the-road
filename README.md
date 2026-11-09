@@ -119,3 +119,30 @@ The dashboard lets the operator hide a post and resolve its report together. **R
 - Report emails use the existing secret `ADMIN_EMAIL` as recipient; the sender is `alerts@votethemofftheroad.com`. **Email sending is disabled until configured**.
 - For free alerts to your own inbox, under Cloudflare **Email Service > Email Routing > Destination Addresses**, add the same email used as `ADMIN_EMAIL` and follow the verification email. Configure the site's sender domain for Email Service if Cloudflare prompts you. Once Email Service is ready, add `"send_email": [{ "name": "REPORT_ALERT_EMAIL" }]` to `wrangler.jsonc`, then deploy. Do not add the binding before Email Service is enabled for the account.
 - Every successfully persisted report/removal request schedules a notification through `ctx.waitUntil` without blocking the reporter. Email delivery failure is logged and doesn't reject the report. The email links to the protected dashboard and doesn't disclose the reporter's contact details. When the binding is absent the dashboard reports "Email alerts awaiting setup".
+
+## Phase 3: Moderation automation, categories, weekly rankings, and returning-visitor incentives
+
+### REQUIRED database migration
+
+The production database must be migrated manually by running **migrations/0002_categories_report_moderation.sql** once in Cloudflare D1 `votethemofftheroad-prod`. The Worker deliberately checks the schema first: the public site will keep accepting existing posts and reports before the migration, but category fields, independent-report automatic hides, and category-based rankings will remain inactive. Wait for the latest Worker deployment before running the migration.
+
+### Report moderation rules
+
+- One report per incident per reporting browser, deduplicated using the same anonymous browser cookie hash already used for voting (when available). No raw IP addresses stored in D1.
+- HMAC of the reporting network IP is used solely for independent-network counting. A report can still be submitted without a browser cookie or detectable network, but it won't count toward automatic takedown unless both are present. Cookie deletion, NAT and VPNs mean this is **not verified user identity**, and organized abuse may remain possible.
+- After **5 distinct reporting browsers from at least 3 distinct networks** report the same published incident during the last **7 days**, its status becomes `hidden`, `auto_hidden_at` records the event, and it is prioritized in the administrator queue. All report reasons count toward this threshold; ordinary off/pass votes do not.
+- This is temporary hiding, not automatic deletion, punishment, or a claim that any traffic offense occurred. Explicitly republishing an incident records its reviewed timestamp and clears the auto-hidden flag, so older reports cannot immediately hide it again. Reports remain available for human moderation.
+- `AUTO_HIDE_REPORT_THRESHOLD` in Wrangler vars defaults to `5`; validation allows values 3–25. Network diversity minimum remains 3 in the Worker.
+- New D1 columns: incident `category`, `auto_hidden_at`, `reviewed_at`; report `reporter_key_hash`, `network_key_hash`, plus a partial unique index on (incident ID, reporter hash).
+- Earlier report rows do not qualify for automated hiding, since their anonymous browser/network identities were never collected.
+
+### Categories and engagement
+
+- New submissions can choose a **community-reported driving-behavior category**, such as parking, tailgating, speeding, signals, distracted driving, road rage and more. Existing posts default to `other`.
+- The public incident feed supports `?sort=week` and `?category=...`; `GET /api/weekly-board` returns this week's top publicly visible incidents per category and aggregate category counts.
+- Weekly board uses Monday **UTC** as the start of the week. It includes incidents first posted during that week and is ranked by votes to take off the road. Do not describe a week's winners as proof of violations or verified identities.
+- `GET /api/my-stats` counts distinct incidents voted on by the browser's random voter identifier and assigns "juror" badges. This is browser-level engagement, not user-account identity.
+- Individual story links use `/nh/?incident=ID#incidents`, allowing easy sharing without leaking hidden/removed incident content.
+- Admin `GET /admin/api/analytics` returns aggregate report reasons and driving-behavior category counts. The admin dashboard sorts auto-hidden incidents first and filters reports by reason, status and urgent auto-hidden state.
+
+Next-stage ideas, not yet implemented: email opt-in weekly summaries, daily challenges, verified-user profiles, verified streaks, end-of-week share cards, local region leaderboards, reputation / trust-weighted moderation, followable categories, and rewards for constructive reporting.
