@@ -1,0 +1,27 @@
+{
+  "name": "vote-them-off-the-road",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-11-08",
+  "workers_dev": true,
+  "routes": [
+    {
+      "pattern": "votethemofftheroad.com",
+      "custom_domain": true
+    }
+  ],
+  "assets": {
+    "directory": "./",
+    "binding": "ASSETS",
+    "not_found_handling": "404-page",
+    "run_worker_first": [
+      "/api/*"
+    ]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "votethemofftheroad-prod",
+      "database_id": "db352eed-b01b-41c1-9cd8-e839e7980740"
+    }
+  ]
+}

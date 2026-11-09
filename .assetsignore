@@ -1,0 +1,15 @@
+# Do not publish application source, SQL migrations, or deployment configuration.
+/src/
+/migrations/
+/.github/
+/.git/
+/.wrangler/
+/node_modules/
+/README.md
+/wrangler.jsonc
+/wrangler.json
+/wrangler.toml
+/package.json
+/package-lock.json
+/pnpm-lock.yaml
+/yarn.lock
