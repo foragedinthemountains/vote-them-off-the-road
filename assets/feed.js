@@ -11,12 +11,14 @@
   let requestVersion = 0;
   const moreButton = document.querySelector("#feed-more");
   let currentCategory = "";
+  let funnyEnabled = false;
   const categorySelect = document.querySelector("#feed-category");
   const categoryLabels = {
     bad_parking: "Parking fails", cutting_off: "Cut-offs & close calls",
     tailgating: "Tailgating", distracted: "Distracted driving",
     signal: "Signals & intersections", speeding: "Speeding",
-    road_rage: "Road rage", roadside: "Roadside oddities", other: "Other"
+    road_rage: "Road rage", roadside: "Roadside oddities",
+    funny_unexpected: "Funny / Unexpected", other: "Other"
   };
   if (!feed || !status) return;
 
@@ -83,22 +85,28 @@
       voteActions.setAttribute("aria-label", "Vote on this driving incident");
       const offButton = element("button", "vote-off");
       const passButton = element("button", "vote-pass");
+      const funnyButton = element("button", "vote-funny");
       offButton.type = "button";
       passButton.type = "button";
+      funnyButton.type = "button";
+      if(funnyEnabled)voteActions.classList.add("has-funny");
       const voteFeedback = element("p", "feed-vote-feedback", "");
       voteFeedback.setAttribute("role", "status");
       voteFeedback.setAttribute("aria-live", "polite");
-      const voteHint = element("p", "feed-vote-hint", "One vote per person. You can change your choice.");
+      const voteHint = element("p", "feed-vote-hint", "One reaction per browser. You can change your choice.");
       function updateVoteButtons() {
         offButton.textContent = "🚫 Vote Them Off · " + (Number(item.off_votes) || 0);
         passButton.textContent = "✓ Give 'Em a Pass · " + (Number(item.pass_votes) || 0);
+        funnyButton.textContent = "😂 That's Just Funny! · " + (Number(item.funny_votes) || 0);
         offButton.setAttribute("aria-pressed", String(item.my_vote === "off"));
         passButton.setAttribute("aria-pressed", String(item.my_vote === "pass"));
+        funnyButton.setAttribute("aria-pressed", String(item.my_vote === "funny"));
       }
       async function submitVote(choice) {
-        if (offButton.disabled || passButton.disabled) return;
+        if (offButton.disabled || passButton.disabled || funnyButton.disabled) return;
         offButton.disabled = true;
         passButton.disabled = true;
+        funnyButton.disabled = true;
         voteFeedback.textContent = "Saving your vote…";
         try {
           const response = await fetch("/api/incidents/" + encodeURIComponent(item.id) + "/vote", {
@@ -112,6 +120,7 @@
           if (!response.ok) throw new Error(result.error || "Vote could not be saved");
           item.off_votes = result.off_votes;
           item.pass_votes = result.pass_votes;
+          item.funny_votes = result.funny_votes;
           item.my_vote = result.my_vote;
           updateVoteButtons();
           voteFeedback.textContent = currentSort === "unvoted" ?
@@ -123,12 +132,15 @@
         } finally {
           offButton.disabled = false;
           passButton.disabled = false;
+          funnyButton.disabled = false;
         }
       }
       offButton.addEventListener("click", () => submitVote("off"));
       passButton.addEventListener("click", () => submitVote("pass"));
+      funnyButton.addEventListener("click", () => submitVote("funny"));
       updateVoteButtons();
       voteActions.append(offButton, passButton);
+      if(funnyEnabled)voteActions.append(funnyButton);
       card.append(voteActions, voteFeedback, voteHint);
       const reportLink = element("a", "feed-report", "Report / request removal");
       reportLink.href = "/nh/report/?id=" + encodeURIComponent(item.id);
@@ -242,6 +254,7 @@
       const data = await response.json();
       if (version !== requestVersion) return;
       if (!Array.isArray(data.incidents)) throw new Error("Unexpected feed response");
+      funnyEnabled = data.funny_enabled === true;
       const incidents = data.incidents;
       if (!append && sharedCaseId && sort !== "unvoted" && !currentCategory &&
           /^[a-zA-Z0-9_-]{6,80}$/.test(sharedCaseId) &&
