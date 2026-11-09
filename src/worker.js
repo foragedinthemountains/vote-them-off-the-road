@@ -2058,7 +2058,8 @@ export default {
       if (pathname === "/api/account/config" && request.method === "GET"){
         const enabled=await publicAccountsReady(env);
         return json({enabled,ownership_enabled:await ownershipSchemaReady(env),
-          publishable_key:enabled?env.CLERK_PUBLISHABLE_KEY:null});
+          provider:enabled?"workos":null,
+          client_id:enabled?env.WORKOS_CLIENT_ID:null});
       }
       if(pathname==="/api/account/me" && request.method==="GET")
         return accountMe(request,env);
