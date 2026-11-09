@@ -1858,10 +1858,12 @@ async function adminApi(request, env, path, identity) {
   }
   if (path === "/admin/api/incidents" && request.method === "GET") {
     const enhanced = await featureSchemaReady(env);
+    const owned=await ownershipSchemaReady(env);
     const vt=await activeVoteTable(env);
     const rows = await env.DB.prepare(`
       SELECT i.id, i.state_code, i.location_label, i.title, i.status,
         i.created_at, i.updated_at,
+        ${owned ? "(SELECT COUNT(*) FROM incident_author_edits ae WHERE ae.incident_id=i.id) AS author_edits," : "0 AS author_edits,"}
         ${enhanced ? "i.category, i.auto_hidden_at," : ""}
         (SELECT COUNT(*) FROM ${vt} v WHERE v.incident_id = i.id AND v.choice = 'off') AS off_votes,
         (SELECT COUNT(*) FROM ${vt} v WHERE v.incident_id = i.id AND v.choice = 'pass') AS pass_votes,
@@ -1872,6 +1874,17 @@ async function adminApi(request, env, path, identity) {
         i.created_at DESC LIMIT 200
     `).all();
     return json({ incidents: rows.results || [], enhanced });
+  }
+  const editHistoryRoute=/^\/admin\/api\/incidents\/([A-Za-z0-9_-]{6,80})\/edits$/.exec(path);
+  if(editHistoryRoute && request.method==="GET"){
+    if(!(await ownershipSchemaReady(env)))return json({edits:[],ready:false});
+    const id=editHistoryRoute[1];
+    const edits=await env.DB.prepare(
+      "SELECT actor_type,previous_title,previous_description,previous_category,"+
+      "previous_location_label,previous_status,created_at "+
+      "FROM incident_author_edits WHERE incident_id=? ORDER BY created_at DESC LIMIT 25"
+    ).bind(id).all();
+    return json({ready:true,edits:edits.results||[]});
   }
   if (path === "/admin/api/analytics" && request.method === "GET") {
     const enhanced = await featureSchemaReady(env);
