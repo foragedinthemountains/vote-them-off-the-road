@@ -146,3 +146,7 @@ The production database must be migrated manually by running **migrations/0002_c
 - Admin `GET /admin/api/analytics` returns aggregate report reasons and driving-behavior category counts. The admin dashboard sorts auto-hidden incidents first and filters reports by reason, status and urgent auto-hidden state.
 
 Next-stage ideas, not yet implemented: email opt-in weekly summaries, daily challenges, verified-user profiles, verified streaks, end-of-week share cards, local region leaderboards, reputation / trust-weighted moderation, followable categories, and rewards for constructive reporting.
+
+### Daily jury duty
+
+The private-by-browser `GET /api/my-stats` endpoint tracks participation from anonymous votes, a three-new-votes-per-UTC-day challenge, and a consecutive-UTC-day voting streak. The browser's server-stored hashed voter identifier is used, not a registered user account. Changing a prior vote does not create a new incident vote or additional participation credit. These streaks and badges can be reset by clearing browser cookies or switching devices, so they are **lightweight participation incentives**, not verified rewards. The weekly jury UI refreshes after votes are saved.
