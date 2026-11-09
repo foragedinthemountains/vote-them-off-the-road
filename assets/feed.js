@@ -69,7 +69,7 @@
       const voteFeedback = element("p", "feed-vote-feedback", "");
       voteFeedback.setAttribute("role", "status");
       voteFeedback.setAttribute("aria-live", "polite");
-      const voteHint = element("p", "feed-vote-hint", "One vote per browser. You can change your choice.");
+      const voteHint = element("p", "feed-vote-hint", "One vote per person. You can change your choice.");
       function updateVoteButtons() {
         offButton.textContent = "🚫 Vote Them Off · " + (Number(item.off_votes) || 0);
         passButton.textContent = "✓ Give 'Em a Pass · " + (Number(item.pass_votes) || 0);
