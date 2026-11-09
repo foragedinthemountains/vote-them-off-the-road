@@ -205,7 +205,9 @@
           el("span","weekly-votes","🚫 "+row.off_votes+" off · ✓ "+row.pass_votes+" pass"));
         card.append(el("p","weekly-qualification",row.qualified?
           (d.archived?"Final weekly podium":"Qualified for the weekly podium"):
-          "Provisional · needs "+Math.max(0,d.minimum_votes-row.total_votes)+" more votes"));
+          (Number(row.total_votes)>=Number(d.minimum_votes) ?
+            "Not qualified: community majority voted to give a pass" :
+            "Provisional · needs "+Math.max(0,d.minimum_votes-row.total_votes)+" more votes")));
         const actions=el("div","weekly-card-actions");
         const view=el("a","jury-next-button","Vote on this case");
         view.href="/nh/?incident="+encodeURIComponent(row.id)+"#incidents";
