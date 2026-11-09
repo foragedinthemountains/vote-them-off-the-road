@@ -230,7 +230,8 @@ async function weeklyBoard(env, offset=0) {
     const rows=await env.DB.prepare(
       "SELECT i.id,i.title,i.category," +
       "COUNT(CASE WHEN v.choice='off' THEN 1 END) AS off_votes," +
-      "COUNT(CASE WHEN v.choice='pass' THEN 1 END) AS pass_votes " +
+      "COUNT(CASE WHEN v.choice='pass' THEN 1 END) AS pass_votes," +
+      "COUNT(CASE WHEN v.choice='funny' THEN 1 END) AS funny_votes " +
       "FROM incidents i LEFT JOIN " + vt + " v ON v.incident_id=i.id " +
       "WHERE i.state_code='NH' AND i.status='published' AND i.created_at>=? AND i.created_at<? " +
       "GROUP BY i.id HAVING COUNT(v.incident_id)>0 " +
@@ -241,8 +242,9 @@ async function weeklyBoard(env, offset=0) {
       const rank=(byCategory.get(row.category)||0)+1;
       byCategory.set(row.category,rank);
       if (rank>3) continue;
-      const total=Number(row.off_votes)+Number(row.pass_votes);
-      podiums.push({...row,rank,total_votes:total,qualified:total>=minimum && Number(row.off_votes)>Number(row.pass_votes)});
+      const total=Number(row.off_votes)+Number(row.pass_votes)+Number(row.funny_votes);
+      podiums.push({...row,rank,total_votes:total,
+        qualified:total>=minimum && Number(row.off_votes)>Number(row.pass_votes)+Number(row.funny_votes)});
     }
   }
   const counts=await env.DB.prepare(
@@ -321,10 +323,12 @@ async function snapshotPreviousWeek(env, scheduledAt = Date.now()) {
   const [votes,counts]=await Promise.all([
     env.DB.prepare(
       "SELECT i.id,i.category,COUNT(CASE WHEN v.choice='off' THEN 1 END) AS off_votes," +
-      "COUNT(CASE WHEN v.choice='pass' THEN 1 END) AS pass_votes " +
+      "COUNT(CASE WHEN v.choice='pass' THEN 1 END) AS pass_votes," +
+      "COUNT(CASE WHEN v.choice='funny' THEN 1 END) AS funny_votes " +
       "FROM incidents i LEFT JOIN " + vt + " v ON v.incident_id=i.id " +
       "WHERE i.state_code='NH' AND i.status='published' AND i.created_at>=? AND i.created_at<? " +
-      "GROUP BY i.id HAVING COUNT(v.incident_id)>=? AND COUNT(CASE WHEN v.choice='off' THEN 1 END)>COUNT(CASE WHEN v.choice='pass' THEN 1 END) " +
+      "GROUP BY i.id HAVING COUNT(v.incident_id)>=? AND " +
+      "COUNT(CASE WHEN v.choice='off' THEN 1 END)>(COUNT(CASE WHEN v.choice='pass' THEN 1 END)+COUNT(CASE WHEN v.choice='funny' THEN 1 END)) " +
       "ORDER BY i.category,off_votes DESC,COUNT(v.incident_id) DESC,i.created_at DESC LIMIT 300"
     ).bind(start,end,weeklyMinimumVotes(env)).all(),
     env.DB.prepare(
