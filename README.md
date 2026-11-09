@@ -195,3 +195,12 @@ The browser-keyed `GET /api/my-stats` endpoint tracks anonymous distinct inciden
 - After migration 0003 and at least two published cases, head-to-head returns a pairing; submitting once works and repeating the exact pair fails.
 - Predict a next-week category, reload, and verify the choice remains. Changing it before next week begins should update the stored preference.
 - Run an old test incident's hide action in the admin dashboard and verify it disappears from the public weekly board.
+
+## Phase 4B: Voting-first navigation and direct sharing
+
+- The New Hampshire page starts with a compact hero and **immediately presents the incident voting board**. Weekly results, daily jury duty, and jury games follow below on the same page. The redundant oversized intro panel was removed.
+- `/nh/` includes a responsive jump-navigation component: desktop-wide left rail, sticky horizontally scrollable tabs on smaller screens, section anchors and active-section highlighting in `assets/jump.js`.
+- Every published incident includes a prominent **Share on Facebook** link opening Facebook's share dialog plus a **Share this case** menu for X, Reddit, WhatsApp, copying the incident permalink, or device-native sharing when supported. Sharing is initiated by the visitor; the site cannot publish to a social account automatically.
+- Shared links take the form `/nh/?incident=ID#incidents`. Facebook, X, and Reddit sharing URLs omit the fragment, leaving `/nh/?incident=ID`. When the matching public post is not in the first feed page, the browser fetches it by ID and scrolls to the case.
+- A Worker-first route for **`/nh/`** adds case-specific Open Graph and Twitter metadata on query-param requests. It only reads **published** incidents, uses an escaped case title, non-accusatory standard description and an optional public cover-photo URL, and returns `Cache-Control: private, no-store`. Other NH page requests continue through Cloudflare static assets.
+- Social networks may cache a preview after a link has been shared. Hiding/deleting a case removes the public site and its media response, but cannot guarantee immediate deletion of third-party cached previews.
