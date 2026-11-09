@@ -100,6 +100,15 @@
       const response = await fetch("/api/config", { cache: "no-store" });
       if (!response.ok) throw new Error("Configuration unavailable");
       const config = await response.json();
+      const categoryField = document.querySelector("#behavior-category-field");
+      if (categoryField) categoryField.hidden = config.community_features_enabled !== true;
+      if (mode === "report") {
+        const note = document.querySelector("#report-moderation-note");
+        if (note) note.textContent = config.community_features_enabled ?
+          "Only one report per browser per incident. " + config.auto_hide_report_threshold +
+          " independent reporting browsers across at least 3 networks in 7 days automatically hide a post pending review." :
+          "Reports are queued for review. Automated hiding activates after the database upgrade.";
+      }
       if (mode === "submit" && photoUpload) {
         photosEnabled = config.photos_enabled === true;
         photoUpload.hidden = !photosEnabled;
@@ -152,6 +161,7 @@
     const values = new FormData(form);
     let payload = mode === "submit" ? {
       title: values.get("title"), location_label: values.get("location_label"),
+      category: values.get("category") || "other",
       description: values.get("description"), turnstile_token: token
     } : {
       reason: values.get("reason"), details: values.get("details"),
@@ -190,7 +200,10 @@
         message(result.error || "Could not send. Please try again.");
         window.turnstile?.reset(widgetId);
       } else {
-        message(mode === "submit" ? "Your story is posted!" : "Report received. Thank you.",
+        message(mode === "submit" ? "Your story is posted!" :
+          result.auto_hidden ? "Report received. This post was temporarily hidden for review." :
+          result.duplicate ? "You already reported this incident. Thank you." :
+          "Report received. Thank you.",
           mode === "submit" ? "/nh/#incidents" : null);
         form.hidden = true;
       }
