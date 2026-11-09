@@ -149,6 +149,56 @@
       message("The form could not connect. Refresh and try again.");
     }
   }
+  function showIncidentManagement(result){
+    if(mode!=="submit")return;
+    const old=document.querySelector("#incident-management-confirmation");
+    if(old)old.remove();
+    const panel=document.createElement("div");
+    panel.id="incident-management-confirmation";
+    panel.className="owner-confirmation";
+    const heading=document.createElement("h3");
+    heading.textContent="Your incident is posted!";
+    panel.append(heading);
+    if(result.owner_type==="guest"&&result.management_token){
+      const origin=location.origin;
+      const privateLink=origin+"/nh/manage/?id="+encodeURIComponent(result.id)+
+        "#key="+encodeURIComponent(result.management_token);
+      const description=document.createElement("p");
+      description.textContent="Save this private link now. It is the key to editing or removing your post later, without creating an account. Anyone with the link could manage the post. Do not publish it.";
+      const input=document.createElement("input");
+      input.type="text";input.value=privateLink;input.readOnly=true;
+      input.setAttribute("aria-label","Your private incident management link");
+      const copy=document.createElement("button");
+      copy.type="button";copy.className="btn btn-secondary";
+      copy.textContent="Copy private management link";
+      copy.addEventListener("click",async()=>{
+        try{
+          await navigator.clipboard.writeText(privateLink);
+          copy.textContent="✓ Private link copied";
+        }catch{
+          input.focus();input.select();
+          copy.textContent="Select and copy the link above";
+        }
+      });
+      const open=document.createElement("a");
+      open.href=privateLink;open.className="owner-private-link";
+      open.rel="noreferrer";open.textContent="Manage this incident ↗";
+      panel.append(description,input,copy,open);
+    }else if(result.owner_type==="account"){
+      const p=document.createElement("p");
+      p.textContent="This incident belongs to your account. You can edit or remove it from My Incidents.";
+      const link=document.createElement("a");
+      link.href="/nh/account/";link.className="btn btn-secondary";
+      link.textContent="Open My Incidents";
+      panel.append(p,link);
+    }else{
+      const p=document.createElement("p");
+      p.textContent="Guest management links are not yet enabled. Save the incident link and contact the site administrator if you need changes.";
+      panel.append(p);
+    }
+    form.insertAdjacentElement("afterend",panel);
+  }
+
   form.addEventListener("submit", async event => {
     event.preventDefault();
     if (saving || !form.reportValidity()) return;
@@ -190,9 +240,15 @@
     const endpoint = mode === "submit" ? "/api/incidents" :
       "/api/incidents/" + encodeURIComponent(incidentId) + "/reports";
     try {
+      const postHeaders=new Headers();
+      if(!isMultipart)postHeaders.set("Content-Type","application/json");
+      // Public accounts are OPTIONAL; without a signed-in Clerk session this
+      // remains the existing anonymous Turnstile-protected submission flow.
+      const accountToken=await window.VTORAccounts?.getToken();
+      if(accountToken)postHeaders.set("Authorization","Bearer "+accountToken);
       const response = await fetch(endpoint, {
-        method: "POST",
-        headers: isMultipart ? undefined : { "Content-Type": "application/json" },
+        method: "POST",credentials:"same-origin",
+        headers:postHeaders,
         body: isMultipart ? payload : JSON.stringify(payload), cache: "no-store"
       });
       const result = await response.json();
@@ -206,6 +262,7 @@
           "Report received. Thank you.",
           mode === "submit" ? "/nh/#incidents" : null);
         form.hidden = true;
+        if(mode==="submit")showIncidentManagement(result);
       }
     } catch {
       message("Could not connect. Please try again.");
