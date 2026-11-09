@@ -50,5 +50,9 @@
       "binding": "PHOTOS",
       "bucket_name": "votethemofftheroad-photos"
     }
-  ]
+  ],
+  "vars": {
+    "ADMIN_ACCESS_AUD": "4ae58fdb0538f1ee78bee3e91d5ef3c5db576a15f2d54769e20015869cbe6a00",
+    "ADMIN_ACCESS_TEAM": "dawn-bush-fcfd.cloudflareaccess.com"
+  }
 }
