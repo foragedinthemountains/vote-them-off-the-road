@@ -666,30 +666,64 @@ const summaryGroup = `
   GROUP BY i.id, i.state_code, i.location_label, i.title, i.description, i.created_at
 `;
 
+
 async function listIncidents(url, env, request) {
-  const state = (url.searchParams.get("state") || "NH").toUpperCase();
-  const sort = url.searchParams.get("sort") || "newest";
-  const category = url.searchParams.get("category") || "";
-  if (!/^[A-Z]{2}$/.test(state)) return json({ error: "Invalid state" }, 400);
-  if (!["newest", "top", "week"].includes(sort)) return json({ error: "Invalid sort" }, 400);
-  if (category && !Object.hasOwn(behaviorCategories, category)) return json({ error: "Invalid category" }, 400);
-  const ready = await featureSchemaReady(env);
-  const columns = ready ? summaryColumnsWithCategory : summaryColumns;
-  if (category && !ready) return json({ error: "Categories are not active yet" }, 503);
-  const order = sort === "top" || sort === "week" ?
-    "off_votes DESC, i.created_at DESC" : "i.created_at DESC";
-  let filter = "WHERE i.state_code = ? AND i.status = 'published'";
-  const binds = [state];
-  if (category) { filter += " AND i.category = ?"; binds.push(category); }
-  if (sort === "week") { filter += " AND i.created_at >= ?"; binds.push(currentWeekStart()); }
-  const result = await env.DB.prepare(`
+  const state=(url.searchParams.get("state")||"NH").toUpperCase();
+  const sort=url.searchParams.get("sort")||"newest";
+  const category=url.searchParams.get("category")||"";
+  const rawOffset=url.searchParams.get("offset")||"0";
+  const offset=Number(rawOffset);
+  if(!/^[A-Z]{2}$/.test(state))return json({error:"Invalid state"},400);
+  if(!["newest","top","week","unvoted"].includes(sort))return json({error:"Invalid sort"},400);
+  if(category && !Object.hasOwn(behaviorCategories,category))return json({error:"Invalid category"},400);
+  if(!/^(0|[1-9][0-9]{0,4})$/.test(rawOffset) || !Number.isSafeInteger(offset) || offset>2000)
+    return json({error:"Invalid page offset"},400);
+  const ready=await featureSchemaReady(env);
+  const columns=ready?summaryColumnsWithCategory:summaryColumns;
+  if(category&&!ready)return json({error:"Categories are not active yet"},503);
+  const voter=sort==="unvoted"?await voterHash(request):null;
+  const order=(sort==="top"||sort==="week")?
+    "off_votes DESC, i.created_at DESC":"i.created_at DESC";
+  let filter="WHERE i.state_code = ? AND i.status = 'published'";
+  const binds=[state];
+  if(category){filter+=" AND i.category = ?";binds.push(category);}
+  if(sort==="week"){filter+=" AND i.created_at >= ?";binds.push(currentWeekStart());}
+  if(sort==="unvoted" && voter){
+    filter+=" AND NOT EXISTS (SELECT 1 FROM votes v2 WHERE v2.incident_id=i.id AND v2.voter_key_hash=?)";
+    binds.push(voter);
+  }
+  // Fetch one extra row to determine whether Load More should appear.
+  const result=await env.DB.prepare(`
     SELECT ${columns} ${summaryJoin}
     ${filter}
-    ${summaryGroup} ORDER BY ${order} LIMIT 20
-  `).bind(...binds).all();
-  return json({ state, sort, category,
-    incidents: await attachMyVotes(await attachImages(result.results || [], env), request, env)
+    ${summaryGroup} ORDER BY ${order} LIMIT 21 OFFSET ?
+  `).bind(...binds,offset).all();
+  const rows=result.results||[];
+  return json({state,sort,category,offset,has_more:rows.length>20,
+    next_offset:offset+Math.min(20,rows.length),
+    incidents:await attachMyVotes(await attachImages(rows.slice(0,20),env),request,env)
   });
+}
+
+async function featuredCase(request,env) {
+  const day=easternGameDay();
+  // Recent, public cases only; stable selection during the Eastern calendar day.
+  const found=await env.DB.prepare(
+    "SELECT id FROM incidents WHERE state_code='NH' AND status='published' "+
+    "ORDER BY created_at DESC,id DESC LIMIT 60"
+  ).all();
+  const cases=found.results||[];
+  if(!cases.length)return json({ready:true,incident:null,day:day.key,next_reset_at:day.nextReset});
+  const source=new TextEncoder().encode("featured-case:"+day.key);
+  const digest=new Uint8Array(await crypto.subtle.digest("SHA-256",source));
+  const key=(digest[0]*16777216+digest[1]*65536+digest[2]*256+digest[3])>>>0;
+  const index=key%cases.length;
+  // Recheck status in getIncident, preventing a case just hidden from being featured.
+  const response=await getIncident(cases[index].id,env,request);
+  if(!response.ok)return json({ready:true,incident:null,day:day.key,next_reset_at:day.nextReset});
+  const result=await response.json();
+  return json({ready:true,incident:result.incident,
+    day:day.key,next_reset_at:day.nextReset});
 }
 
 async function getIncident(id, env, request) {
@@ -1286,6 +1320,8 @@ export default {
           category_labels: behaviorCategories,
           turnstile_site_key: enabled ? env.TURNSTILE_SITE_KEY : null }));
       }
+      if (pathname === "/api/featured-case" && request.method === "GET")
+        return withVoterCookie(request,await featuredCase(request,env));
       if (pathname === "/api/weekly-board" && request.method === "GET") {
         const offset=Number(url.searchParams.get("offset") || "0");
         if (!Number.isSafeInteger(offset) || offset<0 || offset>12)
