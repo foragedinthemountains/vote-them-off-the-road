@@ -54,6 +54,91 @@ function writesReady(env) {
   return Boolean(env.DB && env.TURNSTILE_SITE_KEY && env.TURNSTILE_SECRET_KEY && env.WRITE_RATE_LIMITER);
 }
 
+// Anonymous browser voting. No IP address or raw voter cookie is stored in D1.
+// Clearing cookies permits another vote; this is a lightweight launch safeguard, not verified identity.
+const voterCookieName = "vtor_voter";
+const voterIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+function readVoterId(request) {
+  const cookie = (request.headers.get("Cookie") || "").split(";")
+    .map(value => value.trim()).find(value => value.startsWith(voterCookieName + "="));
+  if (!cookie) return null;
+  const id = cookie.slice(voterCookieName.length + 1);
+  return voterIdPattern.test(id) ? id.toLowerCase() : null;
+}
+function withVoterCookie(request, response) {
+  if (readVoterId(request) || !response.ok) return response;
+  const headers = new Headers(response.headers);
+  headers.append("Set-Cookie", voterCookieName + "=" + crypto.randomUUID() +
+    "; Path=/; Max-Age=31536000; Secure; HttpOnly; SameSite=Lax");
+  return new Response(response.body, {
+    status: response.status, statusText: response.statusText, headers
+  });
+}
+async function voterHash(request) {
+  const id = readVoterId(request);
+  if (!id) return null;
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(id));
+  return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("");
+}
+async function attachMyVotes(rows, request, env) {
+  const hash = await voterHash(request);
+  if (!rows.length || !hash) return rows.map(row => ({ ...row, my_vote: null }));
+  const placeholders = rows.map(() => "?").join(",");
+  const result = await env.DB.prepare(
+    "SELECT incident_id, choice FROM votes WHERE voter_key_hash = ? AND incident_id IN (" +
+      placeholders + ")"
+  ).bind(hash, ...rows.map(row => row.id)).all();
+  const choices = new Map((result.results || []).map(row => [row.incident_id, row.choice]));
+  return rows.map(row => ({ ...row, my_vote: choices.get(row.id) || null }));
+}
+async function voteIncident(id, request, env) {
+  if (!idPattern.test(id)) return json({ error: "Not found" }, 404);
+  if (!env.DB || !env.VOTE_RATE_LIMITER) return json({ error: "Voting is not available yet" }, 503);
+  if (request.headers.get("Origin") !== SITE_ORIGIN) {
+    return json({ error: "Request origin not allowed" }, 403);
+  }
+  const fetchSite = request.headers.get("Sec-Fetch-Site");
+  if (fetchSite && fetchSite !== "same-origin") {
+    return json({ error: "Request not allowed" }, 403);
+  }
+  const hash = await voterHash(request);
+  if (!hash) return json({ error: "Refresh the incident feed to initialize voting" }, 428);
+  const parsed = await parseBody(request);
+  if (parsed.error) return json({ error: parsed.error }, parsed.status);
+  const choice = parsed.value.choice;
+  if (choice !== "off" && choice !== "pass") return json({ error: "Invalid vote choice" }, 400);
+  // Per-network throttling deters rapid automated voting; Cloudflare limits are approximate.
+  const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+  const allowed = await env.VOTE_RATE_LIMITER.limit({ key: "ip:" + ip });
+  if (!allowed.success) {
+    return json({ error: "Too many votes right now. Try again shortly." }, 429);
+  }
+  await env.DB.prepare(`
+    INSERT INTO votes (incident_id, voter_key_hash, choice)
+    SELECT ?, ?, ? WHERE EXISTS (
+      SELECT 1 FROM incidents WHERE id = ? AND status = 'published'
+    )
+    ON CONFLICT (incident_id, voter_key_hash)
+    DO UPDATE SET choice = excluded.choice
+  `).bind(id, hash, choice, id).run();
+  // If an incident was hidden or removed, never return its vote totals.
+  const publicIncident = await env.DB.prepare(
+    "SELECT 1 FROM incidents WHERE id = ? AND status = 'published'"
+  ).bind(id).first();
+  if (!publicIncident) return json({ error: "Not found" }, 404);
+  const counts = await env.DB.prepare(`
+    SELECT
+      COUNT(CASE WHEN choice = 'off' THEN 1 END) AS off_votes,
+      COUNT(CASE WHEN choice = 'pass' THEN 1 END) AS pass_votes
+    FROM votes WHERE incident_id = ?
+  `).bind(id).first();
+  return json({
+    ok: true, id, my_vote: choice,
+    off_votes: Number(counts?.off_votes || 0),
+    pass_votes: Number(counts?.pass_votes || 0)
+  });
+}
+
 const summaryColumns = `
   i.id, i.state_code, i.location_label, i.title, i.description, i.created_at,
   COUNT(CASE WHEN v.choice = 'off' THEN 1 END) AS off_votes,
@@ -67,7 +152,7 @@ const summaryGroup = `
   GROUP BY i.id, i.state_code, i.location_label, i.title, i.description, i.created_at
 `;
 
-async function listIncidents(url, env) {
+async function listIncidents(url, env, request) {
   const state = (url.searchParams.get("state") || "NH").toUpperCase();
   const sort = url.searchParams.get("sort") || "newest";
   if (!/^[A-Z]{2}$/.test(state)) return json({ error: "Invalid state" }, 400);
@@ -78,17 +163,22 @@ async function listIncidents(url, env) {
     WHERE i.state_code = ? AND i.status = 'published'
     ${summaryGroup} ORDER BY ${order} LIMIT 20
   `).bind(state).all();
-  return json({ state, sort, incidents: await attachImages(result.results || [], env) });
+  return json({
+    state, sort,
+    incidents: await attachMyVotes(await attachImages(result.results || [], env), request, env)
+  });
 }
 
-async function getIncident(id, env) {
+async function getIncident(id, env, request) {
   if (!idPattern.test(id)) return json({ error: "Not found" }, 404);
   const row = await env.DB.prepare(`
     SELECT ${summaryColumns} ${summaryJoin}
     WHERE i.id = ? AND i.status = 'published'
     ${summaryGroup} LIMIT 1
   `).bind(id).first();
-  return row ? json({ incident: (await attachImages([row], env))[0] }) : json({ error: "Not found" }, 404);
+  return row
+    ? json({ incident: (await attachMyVotes(await attachImages([row], env), request, env))[0] })
+    : json({ error: "Not found" }, 404);
 }
 
 async function parseBody(request) {
@@ -241,7 +331,7 @@ async function createReport(id, request, env) {
     INSERT INTO reports (id, incident_id, reason, details, contact_email)
     VALUES (?, ?, ?, ?, ?)
   `).bind(crypto.randomUUID(), id, reason, note, email || null).run();
-  return json({ ok: true, message: "Report received." }, 201);
+  return json({ ok: true, message: "Report received and pending review. The incident stays visible unless it is hidden or removed." }, 201);
 }
 
 export default {
@@ -264,7 +354,7 @@ export default {
       if (pathname === "/api/config" && request.method === "GET") {
         const enabled = writesReady(env);
         return json({ submissions_enabled: enabled, reports_enabled: enabled,
-          photos_enabled: photosReady(env), max_photos: maxPhotos,
+          photos_enabled: photosReady(env), voting_enabled: Boolean(env.DB && env.VOTE_RATE_LIMITER), max_photos: maxPhotos,
           turnstile_site_key: enabled ? env.TURNSTILE_SITE_KEY : null });
       }
       if (pathname === "/api/health" && request.method === "GET") {
@@ -273,9 +363,14 @@ export default {
         return json({ ok: true, database: "connected" });
       }
       if (pathname === "/api/incidents") {
-        if (request.method === "GET") return await listIncidents(url, env);
+        if (request.method === "GET") return withVoterCookie(request, await listIncidents(url, env, request));
         if (request.method === "POST") return await createIncident(request, env);
         return json({ error: "Method not allowed" }, 405, { Allow: "GET, POST" });
+      }
+      const voteMatch = /^\/api\/incidents\/([a-zA-Z0-9_-]{6,80})\/vote$/.exec(pathname);
+      if (voteMatch) {
+        if (request.method === "POST") return await voteIncident(voteMatch[1], request, env);
+        return json({ error: "Method not allowed" }, 405, { Allow: "POST" });
       }
       const reportMatch = /^\/api\/incidents\/([a-zA-Z0-9_-]{6,80})\/reports$/.exec(pathname);
       if (reportMatch) {
@@ -283,7 +378,8 @@ export default {
         return json({ error: "Method not allowed" }, 405, { Allow: "POST" });
       }
       if (pathname.startsWith("/api/incidents/")) {
-        if (request.method === "GET") return await getIncident(pathname.slice("/api/incidents/".length), env);
+        if (request.method === "GET") return withVoterCookie(request,
+          await getIncident(pathname.slice("/api/incidents/".length), env, request));
         return json({ error: "Method not allowed" }, 405, { Allow: "GET" });
       }
       return json({ error: "Not found" }, 404);
