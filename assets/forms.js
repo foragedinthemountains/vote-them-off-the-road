@@ -242,7 +242,7 @@
     try {
       const postHeaders=new Headers();
       if(!isMultipart)postHeaders.set("Content-Type","application/json");
-      // Public accounts are OPTIONAL; without a signed-in Clerk session this
+      // Public accounts are OPTIONAL; without a signed-in WorkOS session this
       // remains the existing anonymous Turnstile-protected submission flow.
       const accountToken=await window.VTORAccounts?.getToken();
       if(accountToken)postHeaders.set("Authorization","Bearer "+accountToken);
