@@ -293,7 +293,7 @@ async function funniestWeekBoard(env, offset=0) {
       "COUNT(CASE WHEN v.choice='funny' THEN 1 END) AS funny_votes " +
       "FROM incidents i LEFT JOIN votes_v4 v ON v.incident_id=i.id " +
       "WHERE i.state_code='NH' AND i.status='published' AND i.created_at>=? AND i.created_at<? " +
-      "GROUP BY i.id HAVING funny_votes>0 " +
+      "GROUP BY i.id HAVING funny_votes>0 OR i.category='funny_unexpected' " +
       "ORDER BY funny_votes DESC,COUNT(v.incident_id) DESC,i.created_at DESC LIMIT 3"
     ).bind(weekStart,weekEnd).all();
     podiums=(result.results||[]).map((row,index)=>{
