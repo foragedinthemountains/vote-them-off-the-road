@@ -200,7 +200,7 @@ async function createIncident(request, env) {
       const imageId = crypto.randomUUID();
       const extension = file.type === "image/jpeg" ? "jpg" : file.type === "image/png" ? "png" : "webp";
       const key = "incidents/" + id + "/" + imageId + "." + extension;
-      const stored = await env.PHOTOS.put(key, file.stream(), {
+      const stored = await env.PHOTOS.put(key, file, {
         httpMetadata: { contentType: file.type, contentDisposition: "inline" }
       });
       if (!stored) throw new Error("Image storage refused file");
