@@ -353,6 +353,25 @@ async function snapshotPreviousWeek(env, scheduledAt = Date.now()) {
       "INSERT OR IGNORE INTO weekly_category_results(week_start,category,incident_count) VALUES(?,?,?)"
     ).bind(start,category,totals.get(category)||0));
   }
+  if(await humorSchemaReady(env)) {
+    const funniest=await env.DB.prepare(
+      "SELECT i.id," +
+      "COUNT(CASE WHEN v.choice='funny' THEN 1 END) AS funny_votes," +
+      "COUNT(CASE WHEN v.choice='off' THEN 1 END) AS off_votes," +
+      "COUNT(CASE WHEN v.choice='pass' THEN 1 END) AS pass_votes " +
+      "FROM incidents i LEFT JOIN votes_v4 v ON v.incident_id=i.id " +
+      "WHERE i.state_code='NH' AND i.status='published' AND i.created_at>=? AND i.created_at<? " +
+      "GROUP BY i.id HAVING COUNT(v.incident_id)>=? AND " +
+      "funny_votes>(off_votes+pass_votes) " +
+      "ORDER BY funny_votes DESC,COUNT(v.incident_id) DESC,i.created_at DESC LIMIT 3"
+    ).bind(start,end,weeklyMinimumVotes(env)).all();
+    for(const [index,row] of (funniest.results||[]).entries()) {
+      statements.push(env.DB.prepare(
+        "INSERT OR IGNORE INTO weekly_funny_awards" +
+        "(week_start,rank,incident_id,funny_votes,off_votes,pass_votes) VALUES(?,?,?,?,?,?)"
+      ).bind(start,index+1,row.id,Number(row.funny_votes),Number(row.off_votes),Number(row.pass_votes)));
+    }
+  }
   // Commit the snapshot marker LAST, atomically with winners and category counts.
   statements.push(env.DB.prepare("INSERT OR IGNORE INTO weekly_snapshots(week_start) VALUES(?)").bind(start));
   await env.DB.batch(statements);
