@@ -15,8 +15,31 @@ const behaviorCategories = {
   speeding: "Speeding",
   road_rage: "Road rage",
   roadside: "Other roadside oddities",
+  funny_unexpected: "Funny / Unexpected",
   other: "Other"
 };
+// The third vote is gated on the final step of the non-destructive 0004 migration.
+let humorSchemaCache = { until: 0, ready: false };
+async function humorSchemaReady(env) {
+  if (!env.DB) return false;
+  if (humorSchemaCache.until > Date.now()) return humorSchemaCache.ready;
+  try {
+    const migrated = await env.DB.prepare(
+      "SELECT id FROM humor_migration_complete WHERE id=1"
+    ).first();
+    if (!migrated) throw new Error("Missing activation marker");
+    await env.DB.prepare("SELECT choice FROM votes_v4 LIMIT 0").all();
+    await env.DB.prepare("SELECT week_start FROM weekly_funny_awards LIMIT 0").all();
+    humorSchemaCache = { until: Date.now()+30000, ready: true };
+  } catch {
+    humorSchemaCache = { until: Date.now()+30000, ready: false };
+  }
+  return humorSchemaCache.ready;
+}
+async function activeVoteTable(env) {
+  return (await humorSchemaReady(env)) ? "votes_v4" : "votes";
+}
+
 let featureSchemaCache = { until: 0, ready: false };
 async function featureSchemaReady(env) {
   if (!env.DB) return false;
