@@ -39,3 +39,8 @@
 .admin-analytics-columns{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:25px}
 .admin-analytics-column p{font-size:13px;font-weight:700;margin:6px 0;color:#4a5a58}
 @media(max-width:650px){.admin-report-filters select{flex:1;max-width:100%}}
+
+.admin-category-editor{display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin:12px 0}
+.admin-category-editor label{font-size:12px;font-weight:900}
+.admin-category-editor select{font:inherit;font-size:13px;font-weight:700;padding:9px;border:1px solid #61736b;border-radius:8px;background:#fffefa;max-width:min(300px,100%)}
+.admin-category-editor button{min-height:38px}
