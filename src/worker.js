@@ -320,6 +320,7 @@ async function limitJuryAction(request,env) {
   return allowed.success===true;
 }
 async function juryCheckin(request,env) {
+  const vt=await activeVoteTable(env);
   if (!(await gameSchemaReady(env))) return json({error:"The jury game migration is not active yet."},503);
   if (!isCommunityActionAllowed(request)) return json({error:"Invalid request origin"},403);
   const voter=await voterHash(request);
@@ -327,7 +328,7 @@ async function juryCheckin(request,env) {
   if (!(await limitJuryAction(request,env))) return json({error:"Too many actions. Try later."},429);
   const remaining=await env.DB.prepare(
     "SELECT COUNT(*) AS count FROM incidents i WHERE i.state_code='NH' AND i.status='published' " +
-    "AND NOT EXISTS (SELECT 1 FROM votes v WHERE v.voter_key_hash=? AND v.incident_id=i.id)"
+    "AND NOT EXISTS (SELECT 1 FROM " + vt + " v WHERE v.voter_key_hash=? AND v.incident_id=i.id)"
   ).bind(voter).first();
   if (Number(remaining?.count||0)>0) {
     return json({error:"There are new cases to vote on. Finish those to maintain your streak."},409);
@@ -340,6 +341,7 @@ async function juryCheckin(request,env) {
 }
 
 async function juryStreakSave(request,env) {
+  const vt=await activeVoteTable(env);
   if (!(await gameSchemaReady(env))) return json({error:"Streak recovery is not yet available"},503);
   if (!isCommunityActionAllowed(request)) return json({error:"Invalid request origin"},403);
   const voter=await voterHash(request);
@@ -352,7 +354,7 @@ async function juryStreakSave(request,env) {
   const end=easternMidnight(today);
   const [votes,checkins,saved]=await Promise.all([
     env.DB.prepare(
-      "SELECT created_at FROM votes WHERE voter_key_hash=? AND created_at>=? AND created_at<? LIMIT 1000"
+      "SELECT created_at FROM " + vt + " WHERE voter_key_hash=? AND created_at>=? AND created_at<? LIMIT 1000"
     ).bind(voter,cutoff,end).all(),
     env.DB.prepare(
       "SELECT eastern_day FROM jury_daily_checkins WHERE voter_key_hash=? AND eastern_day>=? AND eastern_day<?"
@@ -619,11 +621,12 @@ async function voterHash(request) {
   return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("");
 }
 async function attachMyVotes(rows, request, env) {
+  const vt=await activeVoteTable(env);
   const hash = await voterHash(request);
   if (!rows.length || !hash) return rows.map(row => ({ ...row, my_vote: null }));
   const placeholders = rows.map(() => "?").join(",");
   const result = await env.DB.prepare(
-    "SELECT incident_id, choice FROM votes WHERE voter_key_hash = ? AND incident_id IN (" +
+    "SELECT incident_id, choice FROM " + vt + " WHERE voter_key_hash = ? AND incident_id IN (" +
       placeholders + ")"
   ).bind(hash, ...rows.map(row => row.id)).all();
   const choices = new Map((result.results || []).map(row => [row.incident_id, row.choice]));
