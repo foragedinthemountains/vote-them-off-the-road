@@ -23,12 +23,15 @@
       const key=settings.publishable_key;
       if(!/^pk_(test|live)_[a-zA-Z0-9_-]+$/.test(key))
         throw Error("Account provider key invalid");
-      const part=key.split("_")[2]||"";
+      const part=key.replace(/^pk_(test|live)_/,"");
       const host=atob(part.replace(/-/g,"+").replace(/_/g,"/")
         .padEnd(Math.ceil(part.length/4)*4,"=")).replace(/\$$/,"");
       // Clerk's publishable key identifies its instance-specific frontend host.
       if(!/^[a-z0-9.-]+$/i.test(host)||!host.includes(".")||
-         host.includes(".."))throw Error("Account domain invalid");
+         host.includes("..")||
+         !(host.endsWith(".clerk.accounts.dev")||
+           host==="clerk.votethemofftheroad.com"))
+        throw Error("Account frontend host isn't a configured Clerk domain");
       await script("https://"+host+"/npm/@clerk/ui@1/dist/ui.browser.js");
       await script("https://"+host+"/npm/@clerk/clerk-js@6/dist/clerk.browser.js",
         {"data-clerk-publishable-key":key});
