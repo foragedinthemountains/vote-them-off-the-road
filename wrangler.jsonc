@@ -54,6 +54,12 @@
   "vars": {
     "ADMIN_ACCESS_AUD": "4ae58fdb0538f1ee78bee3e91d5ef3c5db576a15f2d54769e20015869cbe6a00",
     "ADMIN_ACCESS_TEAM": "dawn-bush-fcfd.cloudflareaccess.com",
-    "AUTO_HIDE_REPORT_THRESHOLD": "5"
+    "AUTO_HIDE_REPORT_THRESHOLD": "5",
+    "WEEKLY_MIN_VOTES": "5"
+  },
+  "triggers": {
+    "crons": [
+      "5 4,5 * * 1"
+    ]
   }
 }
