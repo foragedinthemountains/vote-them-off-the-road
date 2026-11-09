@@ -37,19 +37,24 @@
       if(!podiums.length){
         grid.append(el("p","funny-empty",offset?
           "No qualifying funny moments recorded for that week.":
-          "No funny reactions yet this week. Be the first to make the jury laugh!"));
+          "No funny nominees yet. Submit a Funny / Unexpected case to get the weekly laughs started!"));
         return;
       }
       for(const row of podiums){
         const card=el("article","weekly-card funniest-card"+(row.qualified?"":" provisional"));
-        const rank={1:"🥇",2:"🥈",3:"🥉"}[row.rank]||"#"+row.rank;
-        card.append(el("span","weekly-category",rank+" FUNNIEST MOMENT"),
+        const rank = row.qualified ?
+          ({1:"🥇",2:"🥈",3:"🥉"}[row.rank] || "#"+row.rank) :
+          "#"+row.rank;
+        card.append(el("span","weekly-category",rank+
+          (row.qualified?" · FUNNIEST MOMENT OF THE WEEK":" · FUNNIEST MOMENT NOMINEE")),
           el("strong","",row.title),
           el("span","weekly-votes",
             "😂 "+Number(row.funny_votes||0)+" funny · 🚫 "+
             Number(row.off_votes||0)+" off · ✓ "+Number(row.pass_votes||0)+" pass"));
         const qualification=row.qualified?
-          (data.archived?"🏆 Official funniest moment":"Qualified for the funniest podium"):
+          (data.archived?"🏆 Official Funniest Moment of the Week":"Currently qualified · Final winner announced after the week ends"):
+          Number(row.total_votes)===0?
+            "New contender · Be the first to react 😂":
           Number(row.total_votes)<Number(data.minimum_votes)?
             "Needs "+Math.max(0,data.minimum_votes-Number(row.total_votes))+
             " more reactions to qualify" :
