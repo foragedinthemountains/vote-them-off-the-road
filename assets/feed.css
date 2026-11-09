@@ -54,3 +54,50 @@
 .feed-filters select:disabled{opacity:.5}
 .feed-share{display:inline-flex;margin:12px 14px 0 0;padding:7px 9px;border:1px solid #9b947f;border-radius:7px;background:#f4eedf;color:#273b38;font-size:12px;font-weight:800;cursor:pointer}
 .feed-card:target{outline:4px solid var(--yellow);outline-offset:4px}
+
+/* Eastern Time jury engagement */
+.jury-progress{align-items:center}
+.jury-progress .jury-meter{width:100%;display:flex;align-items:center;gap:12px;font-size:13px;font-weight:800}
+.jury-meter-track{flex:1;min-width:120px;height:13px;background:#536568;border-radius:20px;overflow:hidden}
+.jury-meter-fill{height:100%;background:#f7c744;border-radius:20px;transition:width .25s}
+.jury-progress .jury-meter span{min-width:52px;text-align:right}
+.jury-reset-timer{font-variant-numeric:tabular-nums}
+.jury-calendar{display:grid;grid-template-columns:repeat(14,minmax(0,1fr));gap:5px;margin:12px 0}
+.jury-calendar-day{min-width:0;background:#f5f1e9;border:1px solid #c9c4b8;border-radius:9px;padding:8px 2px;display:flex;flex-direction:column;align-items:center;gap:1px;color:#758184}
+.jury-calendar-day.active{background:#e2f2cf;border:2px solid #537843;color:#315b49}
+.jury-calendar-day span{font-size:10px;font-weight:800}
+.jury-calendar-day b{font-size:15px}
+.jury-help{font-size:14px;font-weight:700;color:#3f5b51}
+.jury-next-button{display:inline-flex;align-items:center;justify-content:center;background:#f7c744;border:2px solid #10171b;border-radius:8px;padding:10px 12px;color:#10171b;font:inherit;font-size:13px;font-weight:900;cursor:pointer;text-decoration:none}
+.jury-next-button:hover:not(:disabled){background:#f4d879}.jury-next-button:disabled{opacity:.5;cursor:wait}
+.weekly-toolbar{display:flex;align-items:center;flex-wrap:wrap;gap:12px;margin:20px 0 8px;font-size:13px;font-weight:800}
+.weekly-toolbar select{font:inherit;font-weight:800;border:2px solid #10171b;border-radius:9px;padding:8px 14px;background:#fffefa}
+.weekly-countdown{font-size:13px;color:#3e6252;font-variant-numeric:tabular-nums}
+.weekly-card{transition:transform .15s}
+.weekly-card.provisional{border-color:#aaa18e;box-shadow:none}
+.weekly-qualification{font-size:12px;font-weight:800;color:#3d6657;margin:10px 0}
+.weekly-card.provisional .weekly-qualification{color:#9b692c}
+.weekly-card-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}
+.weekly-card-actions .jury-next-button{font-size:11px;min-height:42px}
+.jury-games-section{background:#f4f2e9}
+.jury-games-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px;margin:26px 0 0}
+.jury-game-panel{background:#fffefa;border:1px solid #d7d4ca;border-radius:20px;padding:26px}
+.jury-game-panel h3{font-size:35px;margin-bottom:12px}
+.jury-game-intro{font-size:14px;color:#536068}
+.jury-game-panel [role=status]{font-size:13px;color:#426053;font-weight:800}
+.jury-game-panel .jury-next-button{margin-top:13px}
+.battle-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:18px}
+.battle-choice{display:flex;flex-direction:column;align-items:stretch;text-align:left;border:2px solid #10171b;border-radius:12px;background:#f7f3e8;gap:10px;padding:15px;font:inherit;cursor:pointer}
+.battle-choice:hover:not(:disabled){background:#f7e5ac}
+.battle-choice.picked{background:#f7c744}
+.battle-choice:disabled{cursor:default}
+.battle-choice img{width:100%;height:140px;object-fit:cover;border-radius:8px}
+.battle-choice strong{font-size:17px;line-height:1.2}
+.battle-choice p{font-size:12px;color:#46534e;max-height:90px;overflow:hidden;margin:0}
+.battle-category{font-size:10px;text-transform:uppercase;letter-spacing:.1em;font-weight:900;color:#aa5728}
+.battle-vote-label,.battle-results{font-weight:900;font-size:12px;color:#426056;margin-top:auto}
+.jury-prediction-label{display:block;font-size:13px;font-weight:800;margin:12px 0 8px}
+.jury-prediction-select{width:100%;max-width:450px;font:inherit;padding:12px;border:2px solid #10171b;border-radius:8px;background:#fffefa}
+.jury-prediction-feedback,.jury-prediction-history{font-size:12px;color:#315b49;font-weight:800;margin:12px 0 0}
+@media(max-width:850px){.jury-games-grid{grid-template-columns:1fr}}
+@media(max-width:560px){.jury-calendar{grid-template-columns:repeat(7,minmax(0,1fr))}.battle-grid{grid-template-columns:1fr 1fr}.battle-choice{padding:10px}.jury-game-panel{padding:18px}.battle-choice img{height:100px}.battle-choice strong{font-size:14px}}
