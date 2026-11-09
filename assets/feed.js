@@ -60,6 +60,12 @@
       card.id = "incident-" + item.id;
 
       card.append(meta, element("h3", "", item.title), element("p", "feed-description", item.description || ""));
+      if (item.category === "funny_unexpected") {
+        const contest = element("a", "feed-contest-label",
+          "😂 Funniest Moment of the Week contender · See standings");
+        contest.href = "/nh/#funniest";
+        card.append(contest);
+      }
       if (Array.isArray(item.photos) && item.photos.length) {
         const gallery = element("div", "feed-gallery");
         gallery.setAttribute("aria-label", "Incident photos, swipe to see more");
