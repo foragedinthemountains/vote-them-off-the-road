@@ -33,10 +33,19 @@
         return;
       }
       const main = make("div", "featured-case-body");
-      const label = make("span", "featured-eyebrow", "⚡ TODAY'S JURY PICK");
+      const isFunny = item.category === "funny_unexpected";
+      const label = make("span", "featured-eyebrow",
+        isFunny ? "😂 FUNNIEST MOMENT OF THE WEEK · CONTENDER" : "⚡ TODAY'S JURY PICK");
       const name = make("h3", "", item.title);
       name.id = "featured-title";
-      const category = typeof item.category === "string" ? item.category.replace(/_/g, " ") : "Driving story";
+      const categoryNames = {
+        bad_parking:"Parking fails",cutting_off:"Cut-offs & close calls",
+        tailgating:"Tailgating",distracted:"Distracted driving",
+        signal:"Signals & intersections",speeding:"Speeding",road_rage:"Road rage",
+        roadside:"Roadside oddities",funny_unexpected:"😂 Funny / Unexpected",
+        other:"Other"
+      };
+      const category = categoryNames[item.category] || "Other";
       const description = make("p", "featured-description",
         (item.description || "").length > 220 ? item.description.slice(0, 220) + "…" : item.description || "");
       const meta = make("p", "featured-meta",
@@ -44,7 +53,7 @@
       const totals = make("p", "featured-votes", 
         "🚫 " + Number(item.off_votes || 0) + " Vote Them Off   ·   ✓ " +
         Number(item.pass_votes || 0) + " Give 'Em a Pass" +
-        (Number(item.funny_votes||0)>0?"   ·   😂 "+item.funny_votes+" Funny":""));
+        "   ·   😂 " + Number(item.funny_votes || 0) + " That's Just Funny");
       const actions = make("div", "featured-actions");
       const detailUrl = "/nh/?incident=" + encodeURIComponent(item.id) + "#incidents";
       const vote = make("a", "featured-vote-link", item.my_vote ?
@@ -57,6 +66,11 @@
       facebook.rel = "noopener noreferrer";
       facebook.setAttribute("aria-label", "Share today's case on Facebook (opens in a new tab)");
       actions.append(vote, facebook);
+      if (isFunny) {
+        const contestLink = make("a", "featured-contest-link", "🏆 See Funniest of the Week standings");
+        contestLink.href = "/nh/#funniest";
+        actions.append(contestLink);
+      }
       main.append(label, name, meta, description, totals, actions);
       panel.append(main);
       const photo = Array.isArray(item.photos) ? item.photos[0] : null;
