@@ -364,6 +364,64 @@ async function castBattleVote(request,env) {
   return json({ok:true,winner_id,results:(result.results||[]).map(row=>
     ({id:row.winner_id,votes:Number(row.wins||0)}))});
 }
+
+async function juryPrediction(request,env) {
+  if (!(await gameSchemaReady(env)) || !(await featureSchemaReady(env)))
+    return json({ready:false,message:"Predictions open after the game database migration."});
+  const voter=await voterHash(request);
+  if (!voter)return json({ready:false,message:"Reload the site to establish your jury ID."});
+  const nextStart=nextEasternWeekStart();
+  const previous=easternMidnight(easternWeekKey(1));
+  const [pick,history,result]=await Promise.all([
+    env.DB.prepare(
+      "SELECT predicted_category FROM weekly_predictions WHERE week_start=? AND voter_key_hash=?"
+    ).bind(nextStart,voter).first(),
+    env.DB.prepare(
+      "SELECT p.week_start,p.predicted_category," +
+      "(SELECT MAX(incident_count) FROM weekly_category_results r WHERE r.week_start=p.week_start) AS max_count," +
+      "(SELECT incident_count FROM weekly_category_results r WHERE r.week_start=p.week_start " +
+      "AND r.category=p.predicted_category) AS predicted_count " +
+      "FROM weekly_predictions p WHERE p.voter_key_hash=? AND p.week_start<? " +
+      "ORDER BY p.week_start DESC LIMIT 50"
+    ).bind(voter,currentWeekStart()).all(),
+    env.DB.prepare(
+      "SELECT category,incident_count FROM weekly_category_results WHERE week_start=? " +
+      "ORDER BY incident_count DESC,category ASC"
+    ).bind(previous).all()
+  ]);
+  const past=(history.results||[]).filter(row=>Number(row.max_count)>0);
+  const correct=past.filter(row=>Number(row.predicted_count)===Number(row.max_count));
+  const resultRows=result.results||[];
+  const high=Number(resultRows[0]?.incident_count||0);
+  const winnerCategories=high>0 ?
+    resultRows.filter(row=>Number(row.incident_count)===high).map(row=>row.category) : [];
+  return json({ready:true,for_week_start:nextStart,
+    can_change_until:nextStart,selection:pick?.predicted_category||null,
+    categories:behaviorCategories,total_predictions_settled:past.length,
+    correct_predictions:correct.length,
+    last_week:{week_start:previous,winners:winnerCategories,
+      qualifying_submissions:high}});
+}
+async function saveJuryPrediction(request,env) {
+  if (!(await gameSchemaReady(env)))return json({error:"Predictions are not active yet"},503);
+  if(!isCommunityActionAllowed(request))return json({error:"Invalid request origin"},403);
+  const voter=await voterHash(request);
+  if(!voter)return json({error:"Reload the site first"},428);
+  const parsed=await parseBody(request);
+  if(parsed.error)return json({error:parsed.error},parsed.status);
+  const category=parsed.value.category;
+  if(typeof category!=="string" || !Object.hasOwn(behaviorCategories,category))
+    return json({error:"Select a valid category"},400);
+  if(!(await limitJuryAction(request,env)))return json({error:"Too many predictions. Try later."},429);
+  const week=nextEasternWeekStart();
+  await env.DB.prepare(
+    "INSERT INTO weekly_predictions(week_start,voter_key_hash,predicted_category) VALUES(?,?,?) " +
+    "ON CONFLICT(week_start,voter_key_hash) DO UPDATE SET " +
+    "predicted_category=excluded.predicted_category,created_at=unixepoch()"
+  ).bind(week,voter,category).run();
+  return json({ok:true,week_start:week,category,
+    message:"Prediction saved for next week. Come back after that week closes to see whether you were right."});
+}
 const maxPhotos = 5;
 const maxPhotoBytes = 5 * 1024 * 1024;
 const maxRequestBytes = 32 * 1024 * 1024;
@@ -1144,6 +1202,10 @@ export default {
         return withVoterCookie(request,await getBattle(request,env));
       if (pathname === "/api/jury/battle" && request.method === "POST")
         return castBattleVote(request,env);
+      if (pathname === "/api/jury/prediction" && request.method === "GET")
+        return withVoterCookie(request,await juryPrediction(request,env));
+      if (pathname === "/api/jury/prediction" && request.method === "POST")
+        return saveJuryPrediction(request,env);
       if (pathname === "/api/health" && request.method === "GET") {
         const result = await env.DB.prepare("SELECT 1 AS healthy").first();
         if (result?.healthy !== 1) throw new Error("D1 probe failed");
