@@ -39,7 +39,9 @@
           "New driving incidents will appear here when they're submitted.")
       );
       feed.append(empty);
-      status.textContent = "No published incidents yet.";
+      status.textContent = currentSort === "unvoted" ?
+        "All caught up! No unjudged published cases remain." :
+        "No cases match this view right now.";
       return;
     }
 
