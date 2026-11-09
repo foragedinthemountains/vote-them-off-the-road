@@ -146,7 +146,9 @@
     if(line)lines.push(line);
     lines.slice(0,3).forEach((text,i)=>ctx.fillText(text.slice(0,48),60,260+i*78));
     ctx.fillStyle="#f7c744";ctx.font="bold 32px sans-serif";
-    ctx.fillText("🚫 "+row.off_votes+" off   ✓ "+row.pass_votes+" pass",60,525);
+    const emojiLine = "🚫 "+Number(row.off_votes||0)+" off   ✓ "+Number(row.pass_votes||0)+" pass" +
+      (Number(row.funny_votes||0)>0?"   😂 "+row.funny_votes+" funny":"");
+    ctx.fillText(emojiLine,60,525);
     ctx.fillStyle="#b4c5c2";ctx.font="22px sans-serif";
     ctx.fillText("Community votes · Not a verified traffic violation",60,588);
     return canvas;
@@ -202,11 +204,12 @@
         const rank={1:"🥇",2:"🥈",3:"🥉"}[row.rank]||"#"+row.rank;
         card.append(el("span","weekly-category",rank+" "+(labels[row.category]||"Other")),
           el("strong","",row.title),
-          el("span","weekly-votes","🚫 "+row.off_votes+" off · ✓ "+row.pass_votes+" pass"));
+          el("span","weekly-votes","🚫 "+row.off_votes+" off · ✓ "+row.pass_votes+
+            " pass"+(row.funny_votes?" · 😂 "+row.funny_votes+" funny":"")));
         card.append(el("p","weekly-qualification",row.qualified?
           (d.archived?"Final weekly podium":"Qualified for the weekly podium"):
           (Number(row.total_votes)>=Number(d.minimum_votes) ?
-            "Not qualified: community majority voted to give a pass" :
+            "Not qualified: fewer Off votes than Pass and Funny combined" :
             "Provisional · needs "+Math.max(0,d.minimum_votes-row.total_votes)+" more votes")));
         const actions=el("div","weekly-card-actions");
         const view=el("a","jury-next-button","Vote on this case");
@@ -230,6 +233,8 @@
       status.textContent="Weekly results are temporarily unavailable.";
     }
   }
+  // Reuse the existing branded 1200x630 share-card creator for the funniest podium.
+  window.vtorShareWeeklyCard = shareCard;
   if(weekSelect)weekSelect.addEventListener("change",()=>loadWeekly(Number(weekSelect.value)));
   window.addEventListener("vtor:vote",()=>{loadProgress();loadWeekly(Number(weekSelect?.value||0));});
   setInterval(tick,1000);
