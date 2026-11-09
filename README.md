@@ -261,3 +261,37 @@ The site compares only pairs of NH cases **from the exact same category and the 
 - The persistent duel data can be reused for monthly and annual awards, but month/year brackets, separate cutoffs and official archives are **future work**, not currently live.
 
 Acceptance tests: /api/jury/battle should return `pair:null` with a clear explanation when only one Funny and one Other case exist. Adding two cases of the same category in the same Eastern week enables a matchup. A successful duel must increase the winner's `battle_wins` on the weekly board, but must not change the underlying regular reaction totals. Funny-category duels contribute to the Funniest board only.
+
+## Phase 5: Jury XP, Daily Missions, Guess the Verdict, Share My Verdict
+
+**REQUIRED activation:** after 0001-0004 are applied and the latest GitHub Worker build is Ready, execute `migrations/0005_jury_xp_verdict_guess.sql` in the **production** Cloudflare D1 database `votethemofftheroad-prod`. It adds `jury_xp_events`, `jury_verdict_guesses`, and a final `jury_xp_migration_complete` activation marker. It does not change the legacy `votes` or active `votes_v4` schemas. It copies existing `votes_v4` as 10 XP per previously recorded distinct incident reaction, once per browser and incident (idempotent). The historical Eastern date from a fixed -5h offset is approximate around DST; only base XP, not historical daily-mission bonuses, is backfilled. Do not run this before 0004.
+
+**Jury XP ranks:** Jury Member 0, Regular Juror 100, Road Referee 350, Jury Foreperson 1000, Judge 2500, Chief Justice 7000. All are cosmetic/progression milestones; they do not add voting weight or moderation authority.
+
+**XP rewards and safeguards:**
+- +10 XP when first voting on a unique incident, including the original data backfill. Changing Off/Pass/Funny later **does not award another 10 XP**. Unique ledger key: `vote:<incident-id>`.
+- +20 XP once per Eastern day upon completing the dynamic Daily Jury Duty target (up to 3 first-time incident votes, limited by eligible cases), never granted purely for checking in.
+- When every published case has been judged, a `POST /api/jury/checkin` check-in maintains the streak and grants +5 XP at most once per Eastern day. No extra XP for repeat check-ins.
+- +5 XP for each of the first **3** valid first-time head-to-head decisions each Eastern day. Each unordered pair is once per browser. A head-to-head decision never changes the underlying Off/Pass/Funny vote.
+- +5 XP for each of the first **2** distinct case verdict guesses each Eastern day, plus up to +5 more when a guess correctly predicts the uniquely leading reaction in a tally with at least **2** total votes. Ties do not earn an accuracy bonus. One guess per browser and case for life, and later vote changes don't modify the recorded guess.
+- +5 daily return bonus when completing a meaningful action and the same browser completed a qualifying action the previous Eastern day.
+- +30 XP for correctly predicting the most-submitted category of a week, only when the week's official category snapshot is archived and has nonzero submissions; ties for most submissions both qualify. Pending credit is settled on a later visit to the Jury XP dashboard. A visitor may change their category prediction before that week begins, but no XP is awarded for changing it.
+
+XP is tracked by anonymous hashed browser identifier, not verified people. Switching devices or clearing cookies can lose continuity; shared/cleared cookies and coordinated abuse can undermine integrity. These values are for playful engagement and should not be presented as verified user reputation.
+
+**Daily missions:** first fresh case verdict; finish dynamically sized Daily Jury Duty (or caught-up check-in); play Guess the Verdict if any case with votes is available; judge a same-category head-to-head if available. Unavailable missions are clearly marked and do not prevent completing Jury Duty. Progress is based on server-side D1 records, not browser local storage.
+
+**Guess the Community Verdict:** `GET /api/jury/verdict-guess?category=...` returns one public, not-yet-guessed case that already has at least one Off, Pass, or Funny reaction, without the tally. `POST /api/jury/verdict-guess` stores a single immutable browser guess, captures the current live totals, reveals the leading reaction and counts, and awards limited Jury XP. Because the public incident board already displays counts, this is a casual instant-reveal mini-game, not a secret prediction market. It does not affect any incident's actual votes, weekly award score, or removal process.
+
+**Share My Verdict:** once a browser has voted on a case, its incident card offers `Share My Verdict`. It generates an original branded **1200x630 PNG**, with title, personal reaction, and a community-opinion disclaimer. On compatible mobile devices, the native share sheet can send the PNG and case permalink. Otherwise the PNG is saved and the existing Facebook button shares the case's social preview URL (visitors attach their saved PNG manually). Clicking Share never awards XP. The site cannot automatically post to a visitor's Facebook account.
+
+**Endpoints:** `GET /api/jury/xp`, `GET /api/jury/verdict-guess`, and `POST /api/jury/verdict-guess`; all mutating actions require same-origin checks and existing rate limiting. These features are gated by the final 0005 marker, and the original public voting/game endpoints continue to work before migration.
+
+**Quick acceptance tests after 0005:**
+1. Run `SELECT id FROM jury_xp_migration_complete;` (should return 1); `SELECT kind,COUNT(*) FROM jury_xp_events GROUP BY kind;` should show pre-existing vote XP if votes existed.
+2. Open `/nh/#daily-jury` and confirm a Jury XP rank, daily mission cards and progression meter appear.
+3. Vote on a previously unjudged case: +10 XP, plus +20 XP if it completes today's dynamic Jury Duty. Change the reaction on that case and verify no additional XP.
+4. Guess the Verdict on a case with at least one community reaction. Confirm a single guess reveals the counts, and repeating it yields an error without XP.
+5. If enough cases exist, cast an eligible head-to-head decision; check the XP ledger reflects no more than three +5 battle awards per day.
+6. Click Share My Verdict on a voted case. On desktop a PNG is saved; on compatible mobile browsers the device share sheet opens. The saved graphic must not contain any invented name or claims.
+7. Clear a test cookie to verify progress is browser-scoped (avoid doing this with a real active juror's profile if continuity matters).
