@@ -1781,8 +1781,15 @@ export default {
     const { pathname } = url;
     if (pathname === "/admin") return Response.redirect(SITE_ORIGIN + "/admin/", 302);
     if (pathname.startsWith("/admin/")) return adminRequest(request, env, pathname);
-    if (pathname === "/nh/" && request.method === "GET" && url.searchParams.has("incident"))
-      return serveSharedIncidentPage(request, env, url);
+    // Initialize the anonymous jury cookie on the HTML response, BEFORE
+    // the page starts its parallel feed, XP, streak and game requests.
+    // Avoids competing Set-Cookie values on a visitor's very first visit.
+    if (pathname === "/nh/" && request.method === "GET") {
+      const page=url.searchParams.has("incident")
+        ? await serveSharedIncidentPage(request,env,url)
+        : await env.ASSETS.fetch(request);
+      return withVoterCookie(request,page);
+    }
     if (pathname.startsWith("/media/")) {
       if (request.method !== "GET" && request.method !== "HEAD")
         return new Response("Method not allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
