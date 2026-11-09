@@ -271,6 +271,99 @@ async function snapshotPreviousWeek(env, scheduledAt = Date.now()) {
   console.log("Finalized Eastern weekly results", {week_start:start,winners:statements.length-10});
 }
 
+
+function isCommunityActionAllowed(request) {
+  const site=request.headers.get("Sec-Fetch-Site");
+  return request.headers.get("Origin")===SITE_ORIGIN && (!site || site==="same-origin");
+}
+async function limitJuryAction(request,env) {
+  if (!env.VOTE_RATE_LIMITER) return false;
+  const ip=request.headers.get("CF-Connecting-IP")||"unknown";
+  const allowed=await env.VOTE_RATE_LIMITER.limit({key:"ip:"+ip});
+  return allowed.success===true;
+}
+async function juryCheckin(request,env) {
+  if (!(await gameSchemaReady(env))) return json({error:"The jury game migration is not active yet."},503);
+  if (!isCommunityActionAllowed(request)) return json({error:"Invalid request origin"},403);
+  const voter=await voterHash(request);
+  if (!voter) return json({error:"Reload the jury board to establish your browser ID"},428);
+  if (!(await limitJuryAction(request,env))) return json({error:"Too many actions. Try later."},429);
+  const remaining=await env.DB.prepare(
+    "SELECT COUNT(*) AS count FROM incidents i WHERE i.state_code='NH' AND i.status='published' " +
+    "AND NOT EXISTS (SELECT 1 FROM votes v WHERE v.voter_key_hash=? AND v.incident_id=i.id)"
+  ).bind(voter).first();
+  if (Number(remaining?.count||0)>0) {
+    return json({error:"There are new cases to vote on. Finish those to maintain your streak."},409);
+  }
+  const day=easternDateKey();
+  const result=await env.DB.prepare(
+    "INSERT OR IGNORE INTO jury_daily_checkins(voter_key_hash,eastern_day) VALUES(?,?)"
+  ).bind(voter,day).run();
+  return json({ok:true,day,already_checked_in:Number(result.meta?.changes||0)===0});
+}
+async function getBattle(request,env) {
+  if (!(await gameSchemaReady(env)) || !(await featureSchemaReady(env)))
+    return json({ready:false,message:"Head-to-head battles open after the database migration."});
+  const voter=await voterHash(request);
+  if (!voter) return json({ready:false,message:"Reload the page to activate your jury ID."});
+  const [posts,played]=await Promise.all([
+    env.DB.prepare(
+      "SELECT id,title,description,category,location_label FROM incidents " +
+      "WHERE state_code='NH' AND status='published' ORDER BY RANDOM() LIMIT 28"
+    ).all(),
+    env.DB.prepare("SELECT left_id,right_id FROM battle_votes WHERE voter_key_hash=? ORDER BY created_at DESC LIMIT 2000")
+      .bind(voter).all()
+  ]);
+  const entries=posts.results||[];
+  const previous=new Set((played.results||[]).map(row=>row.left_id+"|"+row.right_id));
+  let best=null;
+  for(let i=0;i<entries.length;i++) {
+    for(let j=i+1;j<entries.length;j++) {
+      const x=entries[i],y=entries[j];
+      const sorted=[x.id,y.id].sort();
+      if(previous.has(sorted.join("|")))continue;
+      const same=x.category===y.category;
+      if(same) { best=[x,y];break; }
+      if(!best) best=[x,y];
+    }
+    if(best?.[0].category===best?.[1].category) break;
+  }
+  if(!best)return json({ready:true,pair:null,
+    message:entries.length<2?"More published cases are needed for battles.":"You have judged every available pairing."});
+  const [left,right]=await attachImages(best,env);
+  const summarize=row=>({id:row.id,title:row.title,category:row.category,
+    description:(row.description||"").slice(0,350),
+    location_label:row.location_label,photo:row.photos?.[0]?.url||null});
+  return json({ready:true,pair:[summarize(left),summarize(right)],
+    message:"Choose which driving incident is worse. One decision per browser per pairing."});
+}
+async function castBattleVote(request,env) {
+  if (!(await gameSchemaReady(env))) return json({error:"Battles are not active yet"},503);
+  if (!isCommunityActionAllowed(request)) return json({error:"Invalid request origin"},403);
+  const voter=await voterHash(request);
+  if(!voter) return json({error:"Refresh the page first"},428);
+  const body=await parseBody(request);
+  if(body.error) return json({error:body.error},body.status);
+  const {left_id,right_id,winner_id}=body.value;
+  if(!idPattern.test(left_id||"") || !idPattern.test(right_id||"") ||
+     left_id===right_id || (winner_id!==left_id && winner_id!==right_id))
+    return json({error:"Invalid battle selection"},400);
+  if(!(await limitJuryAction(request,env)))return json({error:"Too many actions. Try later."},429);
+  const eligible=await env.DB.prepare(
+    "SELECT COUNT(*) AS total FROM incidents WHERE id IN (?,?) AND status='published' AND state_code='NH'"
+  ).bind(left_id,right_id).first();
+  if(Number(eligible?.total||0)!==2)return json({error:"A battle contender is no longer available"},404);
+  const [first,second]=[left_id,right_id].sort();
+  const saved=await env.DB.prepare(
+    "INSERT OR IGNORE INTO battle_votes(left_id,right_id,voter_key_hash,winner_id) VALUES(?,?,?,?)"
+  ).bind(first,second,voter,winner_id).run();
+  if(Number(saved.meta?.changes||0)===0)return json({error:"This browser already judged that pairing"},409);
+  const result=await env.DB.prepare(
+    "SELECT winner_id,COUNT(*) AS wins FROM battle_votes WHERE left_id=? AND right_id=? GROUP BY winner_id"
+  ).bind(first,second).all();
+  return json({ok:true,winner_id,results:(result.results||[]).map(row=>
+    ({id:row.winner_id,votes:Number(row.wins||0)}))});
+}
 const maxPhotos = 5;
 const maxPhotoBytes = 5 * 1024 * 1024;
 const maxRequestBytes = 32 * 1024 * 1024;
@@ -1045,6 +1138,12 @@ export default {
         return weeklyBoard(env,offset);
       }
       if (pathname === "/api/my-stats" && request.method === "GET") return withVoterCookie(request, await myParticipation(request, env));
+      if (pathname === "/api/jury/checkin" && request.method === "POST")
+        return juryCheckin(request,env);
+      if (pathname === "/api/jury/battle" && request.method === "GET")
+        return withVoterCookie(request,await getBattle(request,env));
+      if (pathname === "/api/jury/battle" && request.method === "POST")
+        return castBattleVote(request,env);
       if (pathname === "/api/health" && request.method === "GET") {
         const result = await env.DB.prepare("SELECT 1 AS healthy").first();
         if (result?.healthy !== 1) throw new Error("D1 probe failed");
