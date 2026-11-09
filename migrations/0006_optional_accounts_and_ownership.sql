@@ -2,6 +2,20 @@
 -- Apply only after the new Worker deployment is Ready and migrations 0001-0005.
 -- Does not modify existing incidents, votes, reports, or administrative Access.
 -- Existing incidents deliberately remain unclaimed; do NOT guess prior owners.
+-- Provider-independent member IDs prevent vendor lock-in if authentication
+-- pricing changes. WorkOS identities map to internal VTOR member UUIDs.
+-- This migration is not yet applied to production; it supersedes its previous
+-- GitHub-only draft. Do not apply a partial older revision of migration 0006.
+CREATE TABLE IF NOT EXISTS public_members (
+  id TEXT PRIMARY KEY,
+  provider TEXT NOT NULL CHECK(provider IN ('workos')),
+  provider_subject TEXT NOT NULL,
+  created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  UNIQUE(provider, provider_subject)
+);
+CREATE INDEX IF NOT EXISTS idx_public_members_provider
+  ON public_members(provider, provider_subject);
+
 CREATE TABLE IF NOT EXISTS incident_ownership (
   incident_id TEXT PRIMARY KEY REFERENCES incidents(id) ON DELETE CASCADE,
   owner_user_id TEXT,
