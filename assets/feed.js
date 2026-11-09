@@ -148,7 +148,9 @@
       const voteFeedback = element("p", "feed-vote-feedback", "");
       voteFeedback.setAttribute("role", "status");
       voteFeedback.setAttribute("aria-live", "polite");
-      const voteHint = element("p", "feed-vote-hint", "One reaction per browser. You can change your choice.");
+      const voteHint = element("p", "feed-vote-hint",
+        "One reaction per browser. Changing your choice does not earn another XP reward.");
+      let myVerdictButton = null;
       function updateVoteButtons() {
         offButton.textContent = "🚫 Vote Them Off · " + (Number(item.off_votes) || 0);
         passButton.textContent = "✓ Give 'Em a Pass · " + (Number(item.pass_votes) || 0);
@@ -156,6 +158,7 @@
         offButton.setAttribute("aria-pressed", String(item.my_vote === "off"));
         passButton.setAttribute("aria-pressed", String(item.my_vote === "pass"));
         funnyButton.setAttribute("aria-pressed", String(item.my_vote === "funny"));
+        if(myVerdictButton)myVerdictButton.hidden=!item.my_vote;
       }
       async function submitVote(choice) {
         if (offButton.disabled || passButton.disabled || funnyButton.disabled) return;
@@ -274,7 +277,34 @@
       }
       shareMenu.append(toggle, options);
       const shareRow = element("div", "feed-share-row");
-      shareRow.append(fbLink, shareMenu);
+      myVerdictButton=element("button","feed-share-verdict","🎨 Share My Verdict");
+      myVerdictButton.type="button";
+      myVerdictButton.hidden=!item.my_vote;
+      myVerdictButton.addEventListener("click",async()=>{
+        if(!item.my_vote){
+          voteFeedback.textContent="Cast your vote first, then share your verdict.";
+          return;
+        }
+        if(!window.VTORShareVerdict?.share){
+          voteFeedback.textContent="The share-card generator isn't available yet. Refresh the page.";
+          return;
+        }
+        myVerdictButton.disabled=true;
+        const text=myVerdictButton.textContent;
+        myVerdictButton.textContent="Preparing your verdict card…";
+        try{
+          const message=await window.VTORShareVerdict.share({
+            incident:item,choice:item.my_vote,url:socialUrl.href
+          });
+          voteFeedback.textContent=message;
+        }catch(error){
+          voteFeedback.textContent=error?.message||"Could not generate the share card.";
+        }finally{
+          myVerdictButton.disabled=false;
+          myVerdictButton.textContent=text;
+        }
+      });
+      shareRow.append(fbLink, shareMenu, myVerdictButton);
       card.append(shareRow, reportLink);
       feed.append(card);
     }
