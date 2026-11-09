@@ -64,11 +64,11 @@
       if(calendar){
         calendar.replaceChildren();
         for(const entry of d.streak_calendar||[]){
-          const day=el("div","jury-calendar-day"+(entry.active?" active":""));
-          day.title=entry.day+(entry.active?" · Jury activity recorded":" · No jury activity");
+          const day=el("div","jury-calendar-day"+(entry.active?" active":"")+(entry.saved?" saved":""));
+          day.title=entry.day+(entry.saved?" · Streak save used":entry.active?" · Jury activity recorded":" · No jury activity");
           const label=new Date(entry.day+"T12:00:00Z").toLocaleDateString("en-US",{weekday:"short",timeZone:"UTC"});
           day.append(el("span","",label),el("b","",new Date(entry.day+"T12:00:00Z").getUTCDate()),
-            el("span","",entry.active?"✓":"·"));
+            el("span","",entry.saved?"★":entry.active?"✓":"·"));
           calendar.append(day);
         }
       }
@@ -95,6 +95,29 @@
             }
           });
           checkin.append(button);
+        }
+        if(d.can_save_streak){
+          checkin.append(el("p","jury-help",
+            "You missed yesterday, but had a three-day streak before it. You have one streak rescue available this month."));
+          const save=el("button","jury-next-button","★ Save my streak");
+          save.type="button";
+          save.addEventListener("click",async()=>{
+            save.disabled=true;
+            try{
+              const response=await fetch("/api/jury/streak-save",{
+                method:"POST",credentials:"same-origin",
+                headers:{"Content-Type":"application/json"},
+                body:"{}",cache:"no-store"
+              });
+              const result=await response.json();
+              if(!response.ok)throw Error(result.error||"Streak rescue failed");
+              await loadProgress();
+            }catch(error){
+              checkin.append(el("p","jury-help",error.message));
+              save.disabled=false;
+            }
+          });
+          checkin.append(save);
         }
       }
       tick();
