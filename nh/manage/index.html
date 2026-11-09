@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow"><meta name="referrer" content="no-referrer">
+<title>Manage My Incident | Vote Them Off the Road</title>
+<link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/assets/styles.css"><link rel="stylesheet" href="/assets/forms.css">
+<link rel="stylesheet" href="/assets/owner.css"></head><body>
+<a class="skip" href="#main">Skip to content</a>
+<div class="announcement">PRIVATE INCIDENT MANAGEMENT • KEEP THIS LINK SAFE</div>
+<header><div class="container header-inner"><a href="/" class="brand"><span class="brand-mark">✓</span><span class="brand-words">Vote Them Off<br>the Road<small>YOU BE THE JUDGE.</small></span></a>
+<nav class="nav"><a href="/nh/">New Hampshire</a><a href="/nh/account/">My account</a><a href="/nh/" class="nav-cta">← Back</a></nav></div></header>
+<main id="main"><section class="subhero"><div class="container"><span class="pill">AUTHOR TOOLS</span>
+<h1>Manage my incident.</h1><p>Edit your own submission or remove it from public view. If your post already has votes, edits require review before it appears again.</p></div></section>
+<section class="section"><div class="container owner-layout">
+<div class="owner-panel"><p id="owner-status" role="status" aria-live="polite">Checking your permission to edit this case…</p>
+<form id="owner-edit-form" hidden>
+<label for="owner-title">Headline</label><input id="owner-title" name="title" required minlength="5" maxlength="160">
+<label for="owner-location">Location (optional)</label><input id="owner-location" name="location_label" maxlength="100">
+<label for="owner-category">Incident category</label><select id="owner-category" name="category">
+<option value="bad_parking">Parking fails</option><option value="cutting_off">Cut-offs &amp; close calls</option>
+<option value="tailgating">Tailgating</option><option value="distracted">Distracted driving</option>
+<option value="signal">Signals &amp; intersections</option><option value="speeding">Speeding</option>
+<option value="road_rage">Road rage</option><option value="roadside">Roadside oddities</option>
+<option value="funny_unexpected">😂 Funny / Unexpected</option><option value="other">Other</option>
+</select>
+<label for="owner-description">What happened?</label>
+<textarea id="owner-description" name="description" required minlength="20" maxlength="3000" rows="7"></textarea>
+<p class="owner-hint">Current photo uploads stay attached. Photo editing can be added in a later update.</p>
+<div id="owner-photo-list" class="owner-photos"></div>
+<button type="submit" class="btn btn-primary">Save changes</button>
+</form></div>
+<div class="owner-panel"><h2>Ownership and removal</h2>
+<p class="owner-hint">A guest management link is private. Anyone who has it could edit or remove this incident, so do not share the management link publicly.</p>
+<p id="owner-access-info"></p>
+<button id="owner-claim" type="button" class="btn btn-secondary" hidden>Claim this incident with my account</button>
+<div class="owner-danger"><h3>Remove from public view</h3>
+<p>Removing an incident makes it disappear from the public feed and weekly boards. Private safety and moderation records may still be retained.</p>
+<button id="owner-remove" type="button" class="btn btn-secondary" disabled>Remove my incident</button>
+</div>
+<p><a href="/nh/account/">My account</a> · <a href="/nh/">Public voting board</a></p>
+</div></div></section></main>
+<footer class="footer"><div class="container"><div class="footer-bottom"><a href="/guidelines/">Rules</a> · <a href="/privacy/">Privacy</a></div></div></footer>
+<script src="/assets/public-account.js?v=20261109-accounts" defer></script>
+<script src="/assets/manage-incident.js?v=20261109-accounts" defer></script></body></html>
