@@ -210,3 +210,9 @@
 .featured-contest-link:hover,.featured-contest-link:focus-visible{color:#192e2b;background:#f7c744}
 .feed-contest-label{display:inline-flex;align-items:center;margin:12px 0 6px;padding:8px 11px;border:1px solid #d0a347;border-radius:9px;background:#fff4d7;color:#78500d;font-size:12px;font-weight:900;text-decoration:none}
 .feed-contest-label:hover,.feed-contest-label:focus-visible{background:#ffe6a1;color:#46310b}
+
+/* Public category selector and corresponding weekly award display. */
+.feed-category-label{white-space:nowrap}
+#feed-category:not(:disabled){opacity:1;cursor:pointer;background:#fffefa}
+#weekly-worst[hidden],#funniest[hidden]{display:none !important}
+.weekly-award-section h3{font-size:clamp(24px,3vw,36px);margin:18px 0 8px}

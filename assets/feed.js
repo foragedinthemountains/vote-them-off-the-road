@@ -3,7 +3,9 @@
   const feed = document.querySelector("#incident-feed");
   const status = document.querySelector("#feed-status");
   const buttons = [...document.querySelectorAll("[data-feed-sort]")];
-  const sharedCaseId = new URLSearchParams(window.location.search).get("incident");
+  const pageParams = new URLSearchParams(window.location.search);
+  const sharedCaseId = pageParams.get("incident");
+  const startingCategory = pageParams.get("category");
   let currentSort = sharedCaseId ? "newest" : "unvoted";
   let nextOffset = 0;
   let hasMore = false;
@@ -11,6 +13,8 @@
   let requestVersion = 0;
   const moreButton = document.querySelector("#feed-more");
   let currentCategory = "";
+  let categoryChosenByVisitor = false;
+  let categoryAutoSelected = false;
   let funnyEnabled = false;
   const categorySelect = document.querySelector("#feed-category");
   const categoryLabels = {
@@ -27,6 +31,51 @@
     if (className) item.className = className;
     if (text !== undefined && text !== null) item.textContent = String(text);
     return item;
+  }
+
+
+  function setCategory(category, reload = false, chosenByVisitor = false) {
+    const next = Object.hasOwn(categoryLabels, category) ? category : "";
+    const changed = currentCategory !== next;
+    currentCategory = next;
+    if (chosenByVisitor) categoryChosenByVisitor = true;
+    if (categorySelect) categorySelect.value = next;
+    if (changed) {
+      const url = new URL(window.location.href);
+      if (next) url.searchParams.set("category", next);
+      else url.searchParams.delete("category");
+      // Preserve the incident permalink, hash and browser back history.
+      window.history.replaceState(window.history.state, "", url.pathname + url.search + url.hash);
+      window.dispatchEvent(new CustomEvent("vtor:category-change", {
+        detail: { category: next, label: categoryLabels[next] || "All categories" }
+      }));
+    }
+    if (reload) load(currentSort);
+  }
+  function installCategoryFilter() {
+    if (!categorySelect) return;
+    // This list was previously never populated: the select remained disabled.
+    categorySelect.replaceChildren(new Option("All categories", ""));
+    for (const [category, name] of Object.entries(categoryLabels)) {
+      categorySelect.append(new Option(name, category));
+    }
+    categorySelect.disabled = false;
+    categorySelect.addEventListener("change", () => {
+      setCategory(categorySelect.value, true, true);
+    });
+    if (startingCategory && Object.hasOwn(categoryLabels, startingCategory)) {
+      setCategory(startingCategory, false, true);
+    }
+    // Keep the control enabled if the config request fails transiently.
+    fetch("/api/config", { cache: "no-store", credentials: "same-origin" })
+      .then(response => response.ok ? response.json() : null)
+      .then(config => {
+        if (!config) return;
+        categorySelect.disabled = config.community_features_enabled !== true;
+        if (config.community_features_enabled !== true)
+          categorySelect.title = "Category filtering is temporarily unavailable";
+        else categorySelect.removeAttribute("title");
+      }).catch(() => {});
   }
 
   function render(incidents, append = false) {
@@ -273,6 +322,23 @@
         }
       }
       if (version !== requestVersion) return;
+      // On a direct incident link, or when the board contains only one case,
+      // show the actual saved category in the dropdown and match weekly awards.
+      // Never override a category the visitor selected explicitly.
+      if (!append && !currentCategory && !categoryChosenByVisitor && !categoryAutoSelected) {
+        const shown = sharedCaseId
+          ? incidents.find(incident => incident.id === sharedCaseId)
+          : (incidents.length === 1 && !data.has_more ? incidents[0] : null);
+        if (shown && Object.hasOwn(categoryLabels, shown.category)) {
+          categoryAutoSelected = true;
+          setCategory(shown.category, false);
+          if (currentCategory) {
+            // Reload with the matching category so the dropdown is a real filter.
+            load(sort);
+            return;
+          }
+        }
+      }
       render(incidents, append);
       nextOffset = Number(data.next_offset || 0);
       hasMore = data.has_more === true;
@@ -307,10 +373,7 @@
   for (const button of buttons) {
     button.addEventListener("click", () => load(button.dataset.feedSort));
   }
-  if (categorySelect) categorySelect.addEventListener("change", () => {
-    currentCategory = categorySelect.value;
-    load(currentSort);
-  });
+  installCategoryFilter();
   if (moreButton) moreButton.addEventListener("click", () => load(currentSort, true));
   const juryShortcut = document.querySelector("#jury-find-unvoted");
   if (juryShortcut) juryShortcut.addEventListener("click", () => {

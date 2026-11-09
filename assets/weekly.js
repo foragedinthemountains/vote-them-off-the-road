@@ -9,6 +9,9 @@
   const checkin=document.querySelector("#jury-checkin");
   const weekSelect=document.querySelector("#weekly-week-select");
   const countdown=document.querySelector("#weekly-countdown");
+  const categorySelect=document.querySelector("#feed-category");
+  const worstPanel=document.querySelector("#weekly-worst");
+  const worstHeading=document.querySelector("#weekly-worst-heading");
   if(!grid||!status)return;
   let nextReset=null,weekEnd=null;
   const el=(tag,cls,value)=>{
@@ -198,7 +201,13 @@
         (!isCurrent && !d.archived?" Historical figures may change until archived.":"");
       grid.replaceChildren();
       const labels=d.categories||{};
-      const podiums=d.podiums||[];
+      const chosenCategory=categorySelect?.value||"";
+      if (worstPanel) worstPanel.hidden = chosenCategory === "funny_unexpected";
+      if (worstHeading) worstHeading.textContent = chosenCategory && chosenCategory !== "funny_unexpected"
+        ? "Worst of the Week · " + (labels[chosenCategory]||"Other")
+        : "Worst of the Week";
+      const podiums=(d.podiums||[]).filter(row =>
+        !chosenCategory || row.category===chosenCategory);
       for(const row of podiums){
         const card=el("article","weekly-card"+(row.qualified?"":" provisional"));
         const rank={1:"🥇",2:"🥈",3:"🥉"}[row.rank]||"#"+row.rank;
@@ -219,12 +228,16 @@
         share.addEventListener("click",()=>shareCard(row,labels[row.category]||"Weekly Pick",share));
         actions.append(view,share);card.append(actions);grid.append(card);
       }
-      if(!podiums.length)grid.append(el("p","feed-empty",isCurrent?
-        "No votes on new cases yet this week. Your verdict could start the board.":
-        "No eligible results recorded for this week."));
+      if(!podiums.length && chosenCategory!=="funny_unexpected")
+        grid.append(el("p","feed-empty",
+          chosenCategory ? "No Worst of the Week contenders yet in "+
+            (labels[chosenCategory]||"this category")+". Be the first to vote." :
+          isCurrent ? "No votes on new cases yet this week. Your verdict could start the board.":
+            "No eligible results recorded for this week."));
       if(tallies && isCurrent){
         tallies.replaceChildren();
-        for(const entry of d.category_counts||[]){
+        for(const entry of (d.category_counts||[]).filter(row =>
+          !chosenCategory || row.category===chosenCategory)){
           tallies.append(el("span","",(labels[entry.category]||"Other")+": "+entry.incidents));
         }
       }
@@ -235,6 +248,8 @@
   }
   // Reuse the existing branded 1200x630 share-card creator for the funniest podium.
   window.vtorShareWeeklyCard = shareCard;
+  window.addEventListener("vtor:category-change",() =>
+    loadWeekly(Number(weekSelect?.value||0)));
   if(weekSelect)weekSelect.addEventListener("change",()=>loadWeekly(Number(weekSelect.value)));
   window.addEventListener("vtor:vote",()=>{loadProgress();loadWeekly(Number(weekSelect?.value||0));});
   setInterval(tick,1000);

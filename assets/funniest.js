@@ -3,6 +3,8 @@
   const grid=document.querySelector("#funniest-grid");
   const status=document.querySelector("#funniest-status");
   const weekSelect=document.querySelector("#weekly-week-select");
+  const categorySelect=document.querySelector("#feed-category");
+  const panel=document.querySelector("#funniest");
   if(!grid||!status)return;
   const el=(tag,cls,text)=>{
     const node=document.createElement(tag);
@@ -16,10 +18,14 @@
   let generation=0;
   async function refresh(offset=0){
     const req=++generation;
+    const chosenCategory=categorySelect?.value||"";
+    if(panel)panel.hidden=!!chosenCategory && chosenCategory!=="funny_unexpected";
+    if(panel?.hidden)return;
     grid.replaceChildren();
     status.textContent="Finding the funniest community picks…";
     try{
-      const response=await fetch("/api/weekly-funniest?offset="+encodeURIComponent(offset),{
+      const response=await fetch("/api/weekly-funniest?offset="+encodeURIComponent(offset)+
+        (chosenCategory ? "&category="+encodeURIComponent(chosenCategory) : ""),{
         cache:"no-store",credentials:"same-origin"
       });
       if(!response.ok)throw new Error("Funniest board unavailable");
@@ -86,6 +92,8 @@
       if(req===generation)status.textContent="The funniest weekly board is temporarily unavailable.";
     }
   }
+  window.addEventListener("vtor:category-change",() =>
+    refresh(Number(weekSelect?.value||0)));
   if(weekSelect)weekSelect.addEventListener("change",()=>refresh(Number(weekSelect.value)));
   window.addEventListener("vtor:vote",()=>refresh(Number(weekSelect?.value||0)));
   refresh(0);
