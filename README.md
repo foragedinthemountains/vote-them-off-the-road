@@ -58,9 +58,19 @@ The goal is entertainment and community voting, not driver identification. Ordin
 - Public writing is closed until TURNSTILE_SITE_KEY (Text) and TURNSTILE_SECRET_KEY (Secret) are set in Cloudflare Worker Settings > Variables and Secrets, and the WRITE_RATE_LIMITER binding is configured.
 - Create a Cloudflare Turnstile widget restricted to votethemofftheroad.com. Never commit a secret key to GitHub.
 - GET /api/config will report submissions_enabled: true when runtime configuration is active.
-- Users can submit text stories at /nh/submit/. Stories publish without routine pre-approval. Media upload and voting are future features.
+- Users can submit text stories at /nh/submit/. Stories publish without routine pre-approval. Optional photo uploads (up to 5) activate when R2 is connected; voting is a future feature.
 - Every incident in the NH feed has a report/removal request link. Reports are stored in the private D1 reports table.
 - Until we have an admin dashboard and alerts, the site operator must manually monitor the reports queue.
 - D1 queue SQL: SELECT id,incident_id,reason,details,contact_email,created_at FROM reports WHERE status='open' ORDER BY created_at DESC;
 - To hide a specific incident: UPDATE incidents SET status='hidden', updated_at=unixepoch() WHERE id='REPLACE-WITH-ID';
 - Do not announce a broad public launch until removal requests can be handled promptly.
+
+## Optional photo uploads (R2)
+
+- Create a private **Standard** R2 bucket named `votethemofftheroad-photos` in the Cloudflare account. A bucket is required before adding the R2 binding to `wrangler.jsonc`.
+- Add `r2_buckets: [{ "binding": "PHOTOS", "bucket_name": "votethemofftheroad-photos" }]` to Wrangler after the bucket exists, then deploy.
+- `GET /api/config` includes `photos_enabled`, which stays false until the `PHOTOS` binding is available; text-only submissions keep working meanwhile.
+- The browser resizes/re-encodes each photo to a maximum of 1920 pixels and 5 MB in WebP; server checks count, bytes, signatures and MIME. Supported original inputs: JPG, PNG and WebP.
+- Media are only served through `/media/:id` after a database check that the parent incident is published. Do not enable public bucket access.
+- Existing `incident_media` schema supports photo order; first image acts as cover in the feed's swipe gallery.
+- Deleting/hiding an incident does not automatically delete its R2 objects; build an admin purge flow before broad launch.
