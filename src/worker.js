@@ -1284,7 +1284,7 @@ async function prepareWrite(request, env, action) {
 }
 
 
-// Incident authorship: users may post as guests, or attach to a verified Clerk
+// Incident authorship: users may post as guests, or attach to a verified WorkOS
 // session when explicitly enabled. The secret guest key is accepted only in a
 // request header and is never stored in plaintext or embedded in a GET URL.
 async function publicAccountIdentity(request,env){
