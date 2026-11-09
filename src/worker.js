@@ -5,6 +5,46 @@ const SITE_HOST = "votethemofftheroad.com";
 const SITE_ORIGIN = "https://" + SITE_HOST;
 const idPattern = /^[a-zA-Z0-9_-]{6,80}$/;
 const reportReasons = new Set(["harassment", "private_info", "false_claim", "copyright", "removal_request", "other"]);
+const maxPhotos = 5;
+const maxPhotoBytes = 5 * 1024 * 1024;
+const maxRequestBytes = 32 * 1024 * 1024;
+const photoTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
+function photosReady(env) { return writesReady(env) && Boolean(env.PHOTOS); }
+function imageSignatureIsValid(bytes, type) {
+  if (type === "image/jpeg") return bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+  if (type === "image/png") return [137,80,78,71,13,10,26,10].every((v,i) => bytes[i] === v);
+  if (type === "image/webp") return [82,73,70,70].every((v,i) => bytes[i] === v) && [87,69,66,80].every((v,i) => bytes[i+8] === v);
+  return false;
+}
+async function attachImages(incidents, env) {
+  if (!incidents.length) return incidents;
+  const placeholders = incidents.map(() => "?").join(",");
+  const ids = incidents.map(row => row.id);
+  const result = await env.DB.prepare(
+    "SELECT id, incident_id, display_order FROM incident_media WHERE media_type = 'image' AND incident_id IN (" + placeholders + ") ORDER BY display_order ASC"
+  ).bind(...ids).all();
+  const byIncident = new Map(ids.map(id => [id, []]));
+  for (const m of result.results || []) {
+    byIncident.get(m.incident_id)?.push({ id: m.id, url: "/media/" + encodeURIComponent(m.id) });
+  }
+  return incidents.map(i => ({ ...i, photos: byIncident.get(i.id) || [] }));
+}
+async function serveImage(id, env) {
+  if (!env.PHOTOS || !idPattern.test(id)) return new Response("Not found", { status: 404 });
+  const media = await env.DB.prepare(
+    "SELECT m.storage_key FROM incident_media m JOIN incidents i ON i.id = m.incident_id WHERE m.id = ? AND m.media_type = 'image' AND m.storage_provider = 'r2' AND i.status = 'published'"
+  ).bind(id).first();
+  if (!media) return new Response("Not found", { status: 404 });
+  const object = await env.PHOTOS.get(media.storage_key);
+  if (!object?.body) return new Response("Not found", { status: 404 });
+  const type = object.httpMetadata?.contentType;
+  if (!photoTypes.has(type)) return new Response("Not found", { status: 404 });
+  return new Response(object.body, { headers: {
+    "Content-Type": type, "Content-Length": String(object.size),
+    "Cache-Control": "public, max-age=60", "X-Content-Type-Options": "nosniff",
+    "Cross-Origin-Resource-Policy": "same-origin"
+  } });
+}
 
 function json(data, status = 200, headers = {}) {
   return Response.json(data, { status, headers: { ...cacheHeaders, ...headers } });
@@ -38,7 +78,7 @@ async function listIncidents(url, env) {
     WHERE i.state_code = ? AND i.status = 'published'
     ${summaryGroup} ORDER BY ${order} LIMIT 20
   `).bind(state).all();
-  return json({ state, sort, incidents: result.results || [] });
+  return json({ state, sort, incidents: await attachImages(result.results || [], env) });
 }
 
 async function getIncident(id, env) {
@@ -48,7 +88,7 @@ async function getIncident(id, env) {
     WHERE i.id = ? AND i.status = 'published'
     ${summaryGroup} LIMIT 1
   `).bind(id).first();
-  return row ? json({ incident: row }) : json({ error: "Not found" }, 404);
+  return row ? json({ incident: (await attachImages([row], env))[0] }) : json({ error: "Not found" }, 404);
 }
 
 async function parseBody(request) {
@@ -93,9 +133,29 @@ async function prepareWrite(request, env, action) {
   const ip = request.headers.get("CF-Connecting-IP") || "unknown";
   const allowed = await env.WRITE_RATE_LIMITER.limit({ key: action + ":" + ip });
   if (!allowed.success) return { response: json({ error: "Too many attempts. Please try again shortly." }, 429) };
-  const parsed = await parseBody(request);
-  if (parsed.error) return { response: json({ error: parsed.error }, parsed.status) };
-  const body = parsed.value;
+  let body;
+  const type = request.headers.get("content-type") || "";
+  if (/^multipart\/form-data(?:;|$)/i.test(type)) {
+    if (Number(request.headers.get("content-length") || 0) > maxRequestBytes) {
+      return { response: json({ error: "Upload too large" }, 413) };
+    }
+    const data = await request.formData();
+    const photos = data.getAll("photos");
+    if (photos.length > maxPhotos || photos.some(f => typeof f?.arrayBuffer !== "function")) {
+      return { response: json({ error: "Choose up to five photos" }, 400) };
+    }
+    if (photos.reduce((sum,f) => sum + f.size, 0) > 25 * 1024 * 1024) {
+      return { response: json({ error: "Total image upload too large" }, 413) };
+    }
+    body = {
+      title: data.get("title"), location_label: data.get("location_label"),
+      description: data.get("description"), turnstile_token: data.get("turnstile_token"), photos
+    };
+  } else {
+    const parsed = await parseBody(request);
+    if (parsed.error) return { response: json({ error: parsed.error }, parsed.status) };
+    body = parsed.value;
+  }
   if (!(await validateTurnstile(body.turnstile_token, action, request, env))) {
     return { response: json({ error: "Verification expired or failed. Please try again." }, 400) };
   }
@@ -115,12 +175,53 @@ async function createIncident(request, env) {
   if (title.length < 5 || title.length > 160 || description.length < 20 || description.length > 3000 || location.length > 100) {
     return json({ error: "Title must be 5–160 characters, story 20–3000, location at most 100." }, 400);
   }
+  const photos = Array.isArray(body.photos) ? body.photos : [];
+  if (photos.length && !photosReady(env)) return json({ error: "Photo uploads are being set up. Submit a text story for now." }, 503);
+  if (photos.length > maxPhotos) return json({ error: "Maximum five photos" }, 400);
+  for (const file of photos) {
+    if (!photoTypes.has(file.type) || file.size < 100 || file.size > maxPhotoBytes) {
+      return json({ error: "Photos must be JPG, PNG, or WebP under 5 MB each." }, 400);
+    }
+    const head = new Uint8Array(await file.slice(0, 12).arrayBuffer());
+    if (!imageSignatureIsValid(head, file.type)) return json({ error: "Invalid photo file" }, 400);
+  }
   const id = crypto.randomUUID();
+  // Keep the incident hidden until every photo and database reference is safely stored.
+  const initialStatus = photos.length ? "hidden" : "published";
   await env.DB.prepare(`
     INSERT INTO incidents (id, state_code, location_label, title, description, status)
-    VALUES (?, 'NH', ?, ?, ?, 'published')
-  `).bind(id, location || null, title, description).run();
-  return json({ ok: true, id, message: "Your driving story is on the board." }, 201);
+    VALUES (?, 'NH', ?, ?, ?, ?)
+  `).bind(id, location || null, title, description, initialStatus).run();
+  if (!photos.length) return json({ ok: true, id, message: "Your driving story is on the board." }, 201);
+  const uploadedKeys = [];
+  try {
+    for (let index = 0; index < photos.length; index++) {
+      const file = photos[index];
+      const imageId = crypto.randomUUID();
+      const extension = file.type === "image/jpeg" ? "jpg" : file.type === "image/png" ? "png" : "webp";
+      const key = "incidents/" + id + "/" + imageId + "." + extension;
+      const stored = await env.PHOTOS.put(key, file.stream(), {
+        httpMetadata: { contentType: file.type, contentDisposition: "inline" }
+      });
+      if (!stored) throw new Error("Image storage refused file");
+      uploadedKeys.push(key);
+      await env.DB.prepare(`
+        INSERT INTO incident_media (id, incident_id, media_type, storage_provider, storage_key, display_order)
+        VALUES (?, ?, 'image', 'r2', ?, ?)
+      `).bind(imageId, id, key, index).run();
+    }
+    await env.DB.prepare("UPDATE incidents SET status = 'published', updated_at = unixepoch() WHERE id = ?")
+      .bind(id).run();
+    return json({ ok: true, id, photos: photos.length, message: "Your photo story is on the board." }, 201);
+  } catch (error) {
+    console.error("Photo submission failed", error);
+    // Best-effort rollback to avoid leaving visible partial incidents or orphaned photos.
+    await Promise.allSettled([
+      env.DB.prepare("DELETE FROM incidents WHERE id = ?").bind(id).run(),
+      ...uploadedKeys.map(key => env.PHOTOS.delete(key))
+    ]);
+    return json({ error: "Photos could not be saved. Please retry your submission." }, 503);
+  }
 }
 
 async function createReport(id, request, env) {
@@ -147,11 +248,23 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     const { pathname } = url;
+    if (pathname.startsWith("/media/")) {
+      if (request.method !== "GET" && request.method !== "HEAD")
+        return new Response("Method not allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
+      try {
+        const image = await serveImage(pathname.slice("/media/".length), env);
+        return request.method === "HEAD" ? new Response(null, { status: image.status, headers: image.headers }) : image;
+      } catch (error) {
+        console.error("Photo fetch failed", error);
+        return new Response("Temporarily unavailable", { status: 503 });
+      }
+    }
     if (!pathname.startsWith("/api/")) return env.ASSETS.fetch(request);
     try {
       if (pathname === "/api/config" && request.method === "GET") {
         const enabled = writesReady(env);
         return json({ submissions_enabled: enabled, reports_enabled: enabled,
+          photos_enabled: photosReady(env), max_photos: maxPhotos,
           turnstile_site_key: enabled ? env.TURNSTILE_SITE_KEY : null });
       }
       if (pathname === "/api/health" && request.method === "GET") {
