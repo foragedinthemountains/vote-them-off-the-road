@@ -84,3 +84,30 @@ The goal is entertainment and community voting, not driver identification. Ordin
 - Requests must carry the same-site origin and valid JSON. A hidden/removed incident cannot be voted on.
 - To inspect counts in D1: `SELECT incident_id, choice, COUNT(*) AS total FROM votes GROUP BY incident_id, choice ORDER BY incident_id, choice;`
 - A report or removal request creates a `reports` row with `status='open'`; the incident stays public until an operator hides/removes it. Check the queue daily until admin alerts and one-click hide are built.
+
+
+## Private Admin Dashboard (Phase 2D)
+
+The administrative dashboard is at `/admin/`. It is **closed by default**, including on workers.dev and preview URLs. The Worker checks a Cloudflare Access **RS256 signed JWT**, its issuer, its application audience, expiry, and the administrator's email before serving any admin HTML or API data.
+
+### Cloudflare Access setup
+
+1. In Cloudflare Zero Trust, open **Access controls > Applications > Add an application > Self-hosted**, then select the production hostname `votethemofftheroad.com` and **path `/admin/*`**. The public site outside this path should remain unprotected.
+2. Create an **Allow** policy where the **Emails** selector matches only the intended administrator email address. Never use Everyone or the Login Methods selector by itself. Use an authentication method enabled in Zero Trust (Cloudflare's provider or one-time PIN).
+3. Copy the application's **Application Audience (AUD) Tag** from Additional settings, and the Zero Trust team domain from Zero Trust > Settings (e.g. `team.cloudflareaccess.com`).
+4. In the existing Worker > Settings > Variables and Secrets add:
+   - `ADMIN_ACCESS_TEAM` (Text): the team hostname **without `https://`**, for example `team.cloudflareaccess.com`.
+   - `ADMIN_ACCESS_AUD` (Text): the Access application's AUD tag.
+   - `ADMIN_EMAIL` (Secret or Text): the **exact** permitted login email.
+5. Deploy the settings. Visiting `/admin/` should trigger Cloudflare Access login, then show the dashboard for the approved email only.
+
+The Worker also verifies the Access JWT cryptographically, so Cloudflare Access application rules are not the only line of defense. Do not turn off Access or publish the above configuration values in a public file.
+
+Admin endpoints (all JWT-protected):
+- `GET /admin/api/me`
+- `GET /admin/api/reports`
+- `GET /admin/api/incidents`
+- `PATCH /admin/api/reports/:id` with `action`: `reviewing`, `resolve`, `dismiss`, `reopen`, or `hide_and_resolve`.
+- `PATCH /admin/api/incidents/:id` with `status`: `published`, `hidden`, `removed`.
+
+The dashboard lets the operator hide a post and resolve its report together. **Reports do not automatically unpublish posts.** The status `removed` means removed from public pages; it does not permanently erase D1 records or R2 photos. Add durable purge, notifications, pagination, and an audit log before substantial traffic.
