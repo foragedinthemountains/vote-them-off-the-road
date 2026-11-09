@@ -159,7 +159,7 @@
       if (!Array.isArray(data.incidents)) throw new Error("Unexpected feed response");
       const incidents = data.incidents;
       const sharedId = new URLSearchParams(location.search).get("incident");
-      if (sharedId && /^[a-zA-Z0-9_-]{6,80}$/.test(sharedId) &&
+      if (sharedId && !currentCategory && /^[a-zA-Z0-9_-]{6,80}$/.test(sharedId) &&
           !incidents.some(i => i.id === sharedId)) {
         const single = await fetch("/api/incidents/" + encodeURIComponent(sharedId),
           { credentials: "same-origin", cache: "no-store" });
