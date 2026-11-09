@@ -159,41 +159,64 @@ async function myParticipation(request, env) {
     badge,next_badge_at:next?.min||null,next_reset_at:time.nextReset,
     eastern_day:time.key,streak_calendar:calendar,game_features_enabled:ready});
 }
-async function weeklyBoard(env) {
-  const weekStart = currentWeekStart();
+
+function weeklyMinimumVotes(env) {
+  const value=Number(env.WEEKLY_MIN_VOTES ?? 5);
+  return Number.isSafeInteger(value) && value>=3 && value<=100 ? value : 5;
+}
+async function weeklyBoard(env, offset=0) {
+  const monday=easternWeekKey(offset);
+  const weekStart=easternMidnight(monday);
+  const weekEnd=easternMidnight(shiftDateKey(monday,7));
+  const minimum=weeklyMinimumVotes(env);
   if (!(await featureSchemaReady(env))) return json({
-    ready: false, week_start: weekStart, leaders: [], category_counts: [],
-    total_votes: 0, categories: behaviorCategories
+    ready:false,week_start:weekStart,week_end:weekEnd,podiums:[],leaders:[],
+    category_counts:[],categories:behaviorCategories,minimum_votes:minimum
   });
-  const [leadersResult, categoryResult] = await Promise.all([
-    env.DB.prepare(`
-      SELECT i.id, i.title, i.category,
-        COUNT(CASE WHEN v.choice='off' THEN 1 END) AS off_votes,
-        COUNT(CASE WHEN v.choice='pass' THEN 1 END) AS pass_votes
-      FROM incidents i LEFT JOIN votes v ON v.incident_id=i.id
-      WHERE i.state_code='NH' AND i.status='published' AND i.created_at >= ?
-      GROUP BY i.id HAVING COUNT(v.incident_id) > 0
-      ORDER BY off_votes DESC, (off_votes + pass_votes) DESC, i.created_at DESC
-      LIMIT 100
-    `).bind(weekStart).all(),
-    env.DB.prepare(`
-      SELECT category, COUNT(*) AS incidents
-      FROM incidents WHERE state_code='NH' AND status='published'
-      GROUP BY category ORDER BY incidents DESC
-    `).all()
-  ]);
-  const winners = [], used = new Set();
-  for (const row of leadersResult.results || []) {
-    if (used.has(row.category)) continue;
-    winners.push(row);
-    used.add(row.category);
+  const games=await gameSchemaReady(env);
+  let archived=false;
+  let podiums=[];
+  if (offset>0 && games) {
+    const snap=await env.DB.prepare("SELECT 1 FROM weekly_snapshots WHERE week_start=?")
+      .bind(weekStart).first();
+    archived=Boolean(snap);
+    if (archived) {
+      const rows=await env.DB.prepare(
+        "SELECT a.incident_id AS id,i.title,a.category,a.rank,a.off_votes,a.pass_votes " +
+        "FROM weekly_awards a JOIN incidents i ON i.id=a.incident_id " +
+        "WHERE a.week_start=? AND i.status='published' ORDER BY a.category,a.rank"
+      ).bind(weekStart).all();
+      podiums=(rows.results||[]).map(row=>({...row,
+        total_votes:Number(row.off_votes)+Number(row.pass_votes),qualified:true}));
+    }
   }
-  return json({ ready: true, week_start: weekStart,
-    leaders: winners.slice(0, 9), categories: behaviorCategories,
-    category_counts: categoryResult.results || [],
-    total_votes: (leadersResult.results || []).reduce((sum, row) =>
-      sum + Number(row.off_votes || 0) + Number(row.pass_votes || 0), 0)
-  });
+  if (!archived) {
+    const rows=await env.DB.prepare(
+      "SELECT i.id,i.title,i.category," +
+      "COUNT(CASE WHEN v.choice='off' THEN 1 END) AS off_votes," +
+      "COUNT(CASE WHEN v.choice='pass' THEN 1 END) AS pass_votes " +
+      "FROM incidents i LEFT JOIN votes v ON v.incident_id=i.id " +
+      "WHERE i.state_code='NH' AND i.status='published' AND i.created_at>=? AND i.created_at<? " +
+      "GROUP BY i.id HAVING COUNT(v.incident_id)>0 " +
+      "ORDER BY i.category,off_votes DESC,COUNT(v.incident_id) DESC,i.created_at DESC LIMIT 300"
+    ).bind(weekStart,weekEnd).all();
+    const byCategory=new Map();
+    for (const row of rows.results||[]) {
+      const rank=(byCategory.get(row.category)||0)+1;
+      byCategory.set(row.category,rank);
+      if (rank>3) continue;
+      const total=Number(row.off_votes)+Number(row.pass_votes);
+      podiums.push({...row,rank,total_votes:total,qualified:total>=minimum});
+    }
+  }
+  const counts=await env.DB.prepare(
+    "SELECT category,COUNT(*) AS incidents FROM incidents " +
+    "WHERE state_code='NH' AND status='published' GROUP BY category ORDER BY incidents DESC"
+  ).all();
+  return json({ready:true,week_start:weekStart,week_end:weekEnd,
+    minimum_votes:minimum,archived,history_offset:offset,
+    podiums,leaders:podiums.filter(row=>row.rank===1),
+    categories:behaviorCategories,category_counts:counts.results||[]});
 }
 
 const maxPhotos = 5;
@@ -960,7 +983,12 @@ export default {
           category_labels: behaviorCategories,
           turnstile_site_key: enabled ? env.TURNSTILE_SITE_KEY : null }));
       }
-      if (pathname === "/api/weekly-board" && request.method === "GET") return weeklyBoard(env);
+      if (pathname === "/api/weekly-board" && request.method === "GET") {
+        const offset=Number(url.searchParams.get("offset") || "0");
+        if (!Number.isSafeInteger(offset) || offset<0 || offset>12)
+          return json({error:"Invalid week offset"},400);
+        return weeklyBoard(env,offset);
+      }
       if (pathname === "/api/my-stats" && request.method === "GET") return withVoterCookie(request, await myParticipation(request, env));
       if (pathname === "/api/health" && request.method === "GET") {
         const result = await env.DB.prepare("SELECT 1 AS healthy").first();
