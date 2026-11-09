@@ -295,3 +295,36 @@ XP is tracked by anonymous hashed browser identifier, not verified people. Switc
 5. If enough cases exist, cast an eligible head-to-head decision; check the XP ledger reflects no more than three +5 battle awards per day.
 6. Click Share My Verdict on a voted case. On desktop a PNG is saved; on compatible mobile browsers the device share sheet opens. The saved graphic must not contain any invented name or claims.
 7. Clear a test cookie to verify progress is browser-scoped (avoid doing this with a real active juror's profile if continuity matters).
+
+## Phase 6: Optional public accounts and incident ownership
+
+**Status:** Code and frontend are prepared in GitHub. Guest ownership turns on only after the 0006 migration; public accounts also require the site's own Clerk instance. Cloudflare Access remains exclusive to the existing protected admin dashboard. Public users never log in through Access.
+
+### Required later: Cloudflare / Clerk activation (do not guess keys)
+
+1. Verify the GitHub deployment that includes `src/ownership.js`, `assets/public-account.js`, and author-management endpoints is **Ready** in Cloudflare Workers.
+2. In Cloudflare D1, choose `votethemofftheroad-prod` and run the complete `migrations/0006_optional_accounts_and_ownership.sql` **once** after migrations 0001–0005. This creates `incident_ownership`, `account_voter_links`, `incident_author_edits`, and `ownership_migration_complete`; no existing records are assigned an owner.
+3. Verify `SELECT id,completed_at FROM ownership_migration_complete;` returns `id=1`. Visit `/api/account/config` and confirm `ownership_enabled:true` after the Worker cache (~30 seconds). New *guest* submissions will now receive a private management link. The key appears only on the successful submit confirmation and cannot be recovered from D1.
+4. **Optional sign-in:** Create a free <https://dashboard.clerk.com/> application for **votethemofftheroad.com**. Configure the site's authorized origin and preferred email/Google sign-in settings. In that app's API keys, obtain the **Publishable Key** (safe for the browser), and the **Frontend API URL** / issuer (e.g. `https://<instance>.clerk.accounts.dev` or its production equivalent).
+5. Add **Cloudflare Worker variables** `CLERK_PUBLISHABLE_KEY` (e.g. `pk_live_...`) and `CLERK_ISSUER` (the complete HTTPS issuer URL, no trailing path). Set `CLERK_AUDIENCE` only if you configure an audience claim in the session token. Never add a Clerk secret key to GitHub. This integration verifies Clerk session JWT signatures using the instance JWKS URL and does **not** need a Clerk secret API key for basic session verification.
+6. Wait for the refreshed deployment, visit `/api/account/config` again to verify `enabled:true`, then test `/nh/account/`, `/nh/submit/`, and `/nh/manage/` on two browsers and with a logged-out session. If any verification fails, remove the two Clerk vars to turn sign-in off while keeping guest use functional.
+
+### Supported now in the prepared code
+
+- Anonymous and authenticated submissions both remain protected by Turnstile; no account is required. A signed-in submission is linked to the *verified Clerk subject*; guest submissions receive a 256-bit random management token. **Only the SHA-256 token hash** is written to D1; the raw key is shown in the response once, then used in the URL fragment (`#key=...`) of the private management link. URL fragments are not transmitted to the server. The browser sends the key as a custom request header for owner API actions.
+- `GET /api/owner/incidents/:id`, `PATCH /api/owner/incidents/:id`, and `DELETE /api/owner/incidents/:id` require the matching guest capability or a valid account JWT with the corresponding author ID. Mutations have Origin checks and throttling, and prevent editing removed posts.
+- Self-service edits support headline, story, category, and optional location, but not yet changing photos. A case already receiving votes is automatically hidden after substantive edits and its previous fields are recorded in `incident_author_edits` for admin review. Edits to an already hidden case never automatically republish it. Admin can restore after review.
+- Self-service `DELETE` is a **public removal**, not permanent data erasure. Media and private records may be retained for moderation, legal compliance, and abuse response pending an explicit permanent-erasure workflow. UI is intentionally labeled "Remove from public view".
+- Signed-in authors can see `GET /api/account/incidents` and manage their posts at `/nh/manage/?id=<id>`. The guest author can claim a post by signing in *while possessing its original private link*. `POST /api/owner/incidents/:id/claim` atomically revokes the old guest token when it attaches the verified account ID.
+- `GET /api/account/me` returns the verified account identity's link status. `POST /api/account/link-browser` explicitly and permanently associates a browser's anonymous voter hash with one Clerk user ID, without leaking raw cookies. `GET /api/account/xp` deduplicates `jury_xp_events` by event key across linked browsers, so the account page displays a combined XP rank.
+- **Not yet implemented:** merging the same user's votes and streaks across multiple browsers into one canonical identity, self-service photo changes, verified ownership claims for incidents posted before 0006, automated permanent erasure, and public account moderation tools. Do not imply these are live.
+- `GET /api/account/config` exposes only the safe publishable key when sign-in is configured and 0006 is active. Guest ownership is gated separately, and can function without Clerk. No public account can access `/admin/` or Cloudflare Access.
+
+### Verification and security test checklist
+
+- Before 0006: submit/vote/report as guests must work exactly as before. `/api/account/config` returns `enabled:false,ownership_enabled:false`. Owner endpoints return a safe 503.
+- After 0006: anonymous submission's success confirmation shows a private management link. Copy and test it. Title/description/category edits work; a case with votes becomes hidden pending review. Removing a case makes its public feed and preview disappear.
+- An unrelated browser without the key must get 403, and the incident ID alone never grants access. A wrong key must also get 403. A forged Clerk JWT must get 401. A token signed by another Clerk instance, an expired token, or one with incorrect `azp` must be rejected.
+- With Clerk configured, log in and create an incident, then verify it appears under My Incidents. In another account it must not appear or be editable. Claim a guest post with its private key and confirm the guest link stops working.
+- Signed-in visitors can opt in to linking browser XP on `/nh/account/` and see deduplicated account XP. A browser previously linked to account A must not be silently reassigned to B.
+- No new account provider script is fetched before Clerk is configured. No public-member secret or raw management token is checked into GitHub.
