@@ -199,191 +199,238 @@ function weeklyMinimumVotes(env) {
   const value=Number(env.WEEKLY_MIN_VOTES ?? 5);
   return Number.isSafeInteger(value) && value>=3 && value<=100 ? value : 5;
 }
-async function weeklyBoard(env, offset=0) {
-  const monday=easternWeekKey(offset);
-  const weekStart=easternMidnight(monday);
-  const weekEnd=easternMidnight(shiftDateKey(monday,7));
-  const minimum=weeklyMinimumVotes(env);
+// A browser earns at most one weekly battle point per winning incident,
+// even if it picks that same incident in more than one same-category duel.
+// Both contenders and the duel must belong to the award's Eastern week.
+function weeklyBattleScoreSQL() {
+  return "SELECT bv.winner_id AS incident_id, COUNT(DISTINCT bv.voter_key_hash) AS wins " +
+    "FROM battle_votes bv " +
+    "JOIN incidents a ON a.id=bv.left_id " +
+    "JOIN incidents b ON b.id=bv.right_id " +
+    "WHERE a.state_code='NH' AND b.state_code='NH' " +
+    "AND a.status='published' AND b.status='published' " +
+    "AND a.category=b.category " +
+    "AND bv.created_at>=? AND bv.created_at<? " +
+    "AND a.created_at>=? AND a.created_at<? " +
+    "AND b.created_at>=? AND b.created_at<? " +
+    "GROUP BY bv.winner_id";
+}
+function weeklyBattleParams(start,end) {
+  return [start,end,start,end,start,end];
+}
+async function weeklyBattlePoints(env,start,end) {
+  if(!(await gameSchemaReady(env)))return new Map();
+  const rows=await env.DB.prepare(weeklyBattleScoreSQL())
+    .bind(...weeklyBattleParams(start,end)).all();
+  return new Map((rows.results||[]).map(row=>
+    [row.incident_id,Number(row.wins||0)]));
+}
+
+// Shared score query for the live weekly boards and Monday finalization.
+// Worst score = Off votes + unique-browser same-category battle wins.
+// Funniest score = Funny reactions + matching comedy duel wins (for funny-category cases).
+// No migrations are required: all duel choices already live in battle_votes.
+async function weeklyAwardCandidates(env,start,end,kind,qualifiedOnly=false,category="") {
+  if(kind!=="worst" && kind!=="funny")throw new Error("Unknown weekly award");
   const vt=await activeVoteTable(env);
-  if (!(await featureSchemaReady(env))) return json({
-    ready:false,week_start:weekStart,week_end:weekEnd,podiums:[],leaders:[],
+  const games=await gameSchemaReady(env);
+  const battle=games?weeklyBattleScoreSQL():
+    "SELECT NULL AS incident_id, 0 AS wins WHERE 0";
+  const binds=[...(games?weeklyBattleParams(start,end):[]),start,end];
+  const categoryWhere=kind==="funny" && category ? " AND i.category=?" : "";
+  if(categoryWhere)binds.push(category);
+  const points=kind==="worst"?"worst_points":"funny_points";
+  const allowed=kind==="worst" ?
+    "category<>'funny_unexpected' AND worst_points>0" :
+    "(funny_points>0 OR category='funny_unexpected')";
+  const qualification=kind==="worst" ?
+    "worst_points>(pass_votes+funny_votes)" :
+    "funny_points>(off_votes+pass_votes)";
+  const qualifyWhere=qualifiedOnly?
+    " AND total_actions>=? AND "+qualification:"";
+  if(qualifiedOnly)binds.push(weeklyMinimumVotes(env));
+  const ranking=kind==="worst" ?
+    "PARTITION BY category ORDER BY worst_points DESC,off_votes DESC,total_actions DESC,created_at DESC,id ASC" :
+    "ORDER BY funny_points DESC,funny_votes DESC,total_actions DESC,created_at DESC,id ASC";
+  const sort=kind==="worst"?"category ASC,rank ASC":"rank ASC";
+  const sql=
+    "WITH battle_scores AS ("+battle+"), " +
+    "reactions AS (SELECT i.id,i.title,i.category,i.created_at, " +
+      "COUNT(CASE WHEN v.choice='off' THEN 1 END) AS off_votes, " +
+      "COUNT(CASE WHEN v.choice='pass' THEN 1 END) AS pass_votes, " +
+      "COUNT(CASE WHEN v.choice='funny' THEN 1 END) AS funny_votes " +
+      "FROM incidents i LEFT JOIN "+vt+" v ON v.incident_id=i.id " +
+      "WHERE i.state_code='NH' AND i.status='published' " +
+      "AND i.created_at>=? AND i.created_at<?"+categoryWhere+" GROUP BY i.id), " +
+    "scored AS (SELECT r.*,COALESCE(b.wins,0) AS battle_wins, " +
+      "(r.off_votes+COALESCE(b.wins,0)) AS worst_points, " +
+      "(r.funny_votes+CASE WHEN r.category='funny_unexpected' " +
+        "THEN COALESCE(b.wins,0) ELSE 0 END) AS funny_points, " +
+      "(r.off_votes+r.pass_votes+r.funny_votes+COALESCE(b.wins,0)) AS total_actions " +
+      "FROM reactions r LEFT JOIN battle_scores b ON b.incident_id=r.id), " +
+    "ranked AS (SELECT *,ROW_NUMBER() OVER ("+ranking+") AS rank " +
+      "FROM scored WHERE "+allowed+qualifyWhere+") " +
+    "SELECT * FROM ranked WHERE rank<=3 ORDER BY "+sort;
+  const result=await env.DB.prepare(sql).bind(...binds).all();
+  const minimum=weeklyMinimumVotes(env);
+  return (result.results||[]).map(row=>{
+    const off=Number(row.off_votes||0),pass=Number(row.pass_votes||0);
+    const funny=Number(row.funny_votes||0),battleWins=Number(row.battle_wins||0);
+    const worstScore=off+battleWins;
+    const funnyBattleWins=row.category==="funny_unexpected"?battleWins:0;
+    const funnyScore=funny+funnyBattleWins;
+    const total=off+pass+funny+battleWins;
+    return {...row,off_votes:off,pass_votes:pass,funny_votes:funny,
+      battle_wins:battleWins,funny_battle_wins:funnyBattleWins,
+      worst_score:worstScore,funny_score:funnyScore,
+      score:kind==="worst"?worstScore:funnyScore,rank:Number(row.rank),
+      total_votes:total,
+      qualified:total>=minimum && (kind==="worst"?
+        worstScore>pass+funny:funnyScore>off+pass)};
+  });
+}
+
+async function weeklyBoard(env,offset=0) {
+  const monday=easternWeekKey(offset);
+  const start=easternMidnight(monday);
+  const end=easternMidnight(shiftDateKey(monday,7));
+  const minimum=weeklyMinimumVotes(env);
+  if(!(await featureSchemaReady(env)))return json({
+    ready:false,week_start:start,week_end:end,podiums:[],leaders:[],
     category_counts:[],categories:behaviorCategories,minimum_votes:minimum
   });
   const games=await gameSchemaReady(env);
-  let archived=false;
-  let podiums=[];
-  if (offset>0 && games) {
-    const snap=await env.DB.prepare("SELECT 1 FROM weekly_snapshots WHERE week_start=?")
-      .bind(weekStart).first();
-    archived=Boolean(snap);
-    if (archived) {
-      const rows=await env.DB.prepare(
-        "SELECT a.incident_id AS id,i.title,a.category,a.rank,a.off_votes,a.pass_votes " +
-        "FROM weekly_awards a JOIN incidents i ON i.id=a.incident_id " +
-        "WHERE a.week_start=? AND i.status='published' ORDER BY a.category,a.rank"
-      ).bind(weekStart).all();
-      podiums=(rows.results||[]).map(row=>({...row,
-        total_votes:Number(row.off_votes)+Number(row.pass_votes),qualified:true}));
+  let archived=false,podiums=[];
+  if(offset>0 && games) {
+    archived=Boolean(await env.DB.prepare(
+      "SELECT 1 FROM weekly_snapshots WHERE week_start=?"
+    ).bind(start).first());
+    if(archived){
+      const [rows,battles]=await Promise.all([
+        env.DB.prepare(
+          "SELECT a.incident_id AS id,i.title,a.category,a.rank,a.off_votes,a.pass_votes " +
+          "FROM weekly_awards a JOIN incidents i ON i.id=a.incident_id " +
+          "WHERE a.week_start=? AND i.status='published' ORDER BY a.category,a.rank"
+        ).bind(start).all(),
+        weeklyBattlePoints(env,start,end)
+      ]);
+      podiums=(rows.results||[]).map(row=>{
+        const battleWins=battles.get(row.id)||0;
+        return {...row,off_votes:Number(row.off_votes),pass_votes:Number(row.pass_votes),
+          battle_wins:battleWins,worst_score:Number(row.off_votes)+battleWins,
+          score:Number(row.off_votes)+battleWins,
+          total_votes:Number(row.off_votes)+Number(row.pass_votes)+battleWins,
+          qualified:true};
+      });
     }
   }
-  if (!archived) {
-    const rows=await env.DB.prepare(
-      "SELECT i.id,i.title,i.category," +
-      "COUNT(CASE WHEN v.choice='off' THEN 1 END) AS off_votes," +
-      "COUNT(CASE WHEN v.choice='pass' THEN 1 END) AS pass_votes," +
-      "COUNT(CASE WHEN v.choice='funny' THEN 1 END) AS funny_votes " +
-      "FROM incidents i LEFT JOIN " + vt + " v ON v.incident_id=i.id " +
-      "WHERE i.state_code='NH' AND i.status='published' AND i.category<>'funny_unexpected' " +
-      "AND i.created_at>=? AND i.created_at<? " +
-      "GROUP BY i.id HAVING COUNT(v.incident_id)>0 " +
-      "ORDER BY i.category,off_votes DESC,COUNT(v.incident_id) DESC,i.created_at DESC LIMIT 300"
-    ).bind(weekStart,weekEnd).all();
-    const byCategory=new Map();
-    for (const row of rows.results||[]) {
-      const rank=(byCategory.get(row.category)||0)+1;
-      byCategory.set(row.category,rank);
-      if (rank>3) continue;
-      const total=Number(row.off_votes)+Number(row.pass_votes)+Number(row.funny_votes);
-      podiums.push({...row,rank,total_votes:total,
-        qualified:total>=minimum && Number(row.off_votes)>Number(row.pass_votes)+Number(row.funny_votes)});
-    }
-  }
+  if(!archived)podiums=await weeklyAwardCandidates(env,start,end,"worst");
   const counts=await env.DB.prepare(
     "SELECT category,COUNT(*) AS incidents FROM incidents " +
     "WHERE state_code='NH' AND status='published' GROUP BY category ORDER BY incidents DESC"
   ).all();
-  return json({ready:true,week_start:weekStart,week_end:weekEnd,
-    minimum_votes:minimum,archived,history_offset:offset,
-    podiums,leaders:podiums.filter(row=>row.rank===1),
-    categories:behaviorCategories,category_counts:counts.results||[]});
+  return json({ready:true,week_start:start,week_end:end,minimum_votes:minimum,
+    archived,history_offset:offset,podiums,
+    leaders:podiums.filter(row=>row.rank===1),
+    categories:behaviorCategories,category_counts:counts.results||[],
+    scoring:"1 Off vote = 1 point; 1 distinct-browser matchup win = 1 point"});
 }
 
-
-
-async function funniestWeekBoard(env, offset=0, category='') {
+async function funniestWeekBoard(env,offset=0,category="") {
   const monday=easternWeekKey(offset);
-  const weekStart=easternMidnight(monday);
-  const weekEnd=easternMidnight(shiftDateKey(monday,7));
+  const start=easternMidnight(monday);
+  const end=easternMidnight(shiftDateKey(monday,7));
   const minimum=weeklyMinimumVotes(env);
-  if (!(await humorSchemaReady(env)) || !(await featureSchemaReady(env))) {
-    return json({ready:false,week_start:weekStart,week_end:weekEnd,
-      podiums:[],minimum_votes:minimum});
-  }
-  if (category && !Object.hasOwn(behaviorCategories,category))
+  if(!(await humorSchemaReady(env)) || !(await featureSchemaReady(env)))
+    return json({ready:false,week_start:start,week_end:end,podiums:[],
+      minimum_votes:minimum});
+  if(category && !Object.hasOwn(behaviorCategories,category))
     return json({error:"Unknown incident category"},400);
-  let archived=false, podiums=[];
+  let archived=false,podiums=[];
   if(offset>0 && await gameSchemaReady(env)) {
     archived=Boolean(await env.DB.prepare(
       "SELECT 1 FROM weekly_snapshots WHERE week_start=?"
-    ).bind(weekStart).first());
+    ).bind(start).first());
     if(archived) {
-      const rows=await env.DB.prepare(
-        "SELECT a.incident_id AS id,i.title,i.category,a.rank," +
-        "a.off_votes,a.pass_votes,a.funny_votes FROM weekly_funny_awards a " +
-        "JOIN incidents i ON i.id=a.incident_id " +
-        "WHERE a.week_start=? AND i.status='published' " +
-        (category ? "AND i.category=? " : "") + "ORDER BY a.rank"
-      ).bind(weekStart,...(category?[category]:[])).all();
-      podiums=(rows.results||[]).map(row=>({...row,qualified:true,
-        total_votes:Number(row.off_votes)+Number(row.pass_votes)+Number(row.funny_votes)}));
+      const [rows,battles]=await Promise.all([
+        env.DB.prepare(
+          "SELECT a.incident_id AS id,i.title,i.category,a.rank," +
+          "a.off_votes,a.pass_votes,a.funny_votes FROM weekly_funny_awards a " +
+          "JOIN incidents i ON i.id=a.incident_id " +
+          "WHERE a.week_start=? AND i.status='published' " +
+          (category?"AND i.category=? ":"")+"ORDER BY a.rank"
+        ).bind(start,...(category?[category]:[])).all(),
+        weeklyBattlePoints(env,start,end)
+      ]);
+      podiums=(rows.results||[]).map(row=>{
+        const battleWins=row.category==="funny_unexpected"?(battles.get(row.id)||0):0;
+        const off=Number(row.off_votes),pass=Number(row.pass_votes),funny=Number(row.funny_votes);
+        return {...row,off_votes:off,pass_votes:pass,funny_votes:funny,
+          battle_wins:battleWins,funny_battle_wins:battleWins,
+          funny_score:funny+battleWins,score:funny+battleWins,
+          total_votes:off+pass+funny+battleWins,qualified:true};
+      });
     }
   }
-  if(!archived) {
-    const result=await env.DB.prepare(
-      "SELECT i.id,i.title,i.category," +
-      "COUNT(CASE WHEN v.choice='off' THEN 1 END) AS off_votes," +
-      "COUNT(CASE WHEN v.choice='pass' THEN 1 END) AS pass_votes," +
-      "COUNT(CASE WHEN v.choice='funny' THEN 1 END) AS funny_votes " +
-      "FROM incidents i LEFT JOIN votes_v4 v ON v.incident_id=i.id " +
-      "WHERE i.state_code='NH' AND i.status='published' AND i.created_at>=? AND i.created_at<? " +
-      (category ? "AND i.category=? " : "") +
-      "GROUP BY i.id HAVING funny_votes>0 OR i.category='funny_unexpected' " +
-      "ORDER BY funny_votes DESC,COUNT(v.incident_id) DESC,i.created_at DESC LIMIT 3"
-    ).bind(weekStart,weekEnd,...(category?[category]:[])).all();
-    podiums=(result.results||[]).map((row,index)=>{
-      const total=Number(row.funny_votes)+Number(row.off_votes)+Number(row.pass_votes);
-      return {...row,rank:index+1,total_votes:total,
-        qualified:total>=minimum && Number(row.funny_votes)>Number(row.off_votes)+Number(row.pass_votes)};
-    });
-  }
-  return json({ready:true,week_start:weekStart,week_end:weekEnd,
-    minimum_votes:minimum,archived,history_offset:offset,category,podiums});
+  if(!archived)podiums=await weeklyAwardCandidates(env,start,end,"funny",false,category);
+  return json({ready:true,week_start:start,week_end:end,minimum_votes:minimum,
+    archived,history_offset:offset,category,podiums,
+    scoring:"1 Funny reaction = 1 point; 1 unique-browser funny-category duel win = 1 point"});
 }
 
-async function snapshotPreviousWeek(env, scheduledAt = Date.now()) {
-  if (!(await featureSchemaReady(env)) || !(await gameSchemaReady(env))) return;
+async function snapshotPreviousWeek(env,scheduledAt=Date.now()) {
+  if(!(await featureSchemaReady(env)) || !(await gameSchemaReady(env)))return;
   const d=new Date(scheduledAt);
   const p=easternParts(d);
   const key=easternDateKey(d);
   const dow=new Date(key+"T12:00:00Z").getUTCDay();
-  // Trigger fires at both 04:05 and 05:05 UTC; only one is 00:05 Eastern.
-  if (dow!==1 || p.hour!==0 || p.minute!==5) return;
-  const lastMonday=easternWeekKey(1,d);
-  const start=easternMidnight(lastMonday);
-  const end=easternMidnight(shiftDateKey(lastMonday,7));
-  const vt=await activeVoteTable(env);
-  const existing=await env.DB.prepare("SELECT 1 FROM weekly_snapshots WHERE week_start=?")
-    .bind(start).first();
-  if (existing) return;
-  const [votes,counts]=await Promise.all([
-    env.DB.prepare(
-      "SELECT i.id,i.category,COUNT(CASE WHEN v.choice='off' THEN 1 END) AS off_votes," +
-      "COUNT(CASE WHEN v.choice='pass' THEN 1 END) AS pass_votes," +
-      "COUNT(CASE WHEN v.choice='funny' THEN 1 END) AS funny_votes " +
-      "FROM incidents i LEFT JOIN " + vt + " v ON v.incident_id=i.id " +
-      "WHERE i.state_code='NH' AND i.status='published' AND i.category<>'funny_unexpected' " +
-      "AND i.created_at>=? AND i.created_at<? " +
-      "GROUP BY i.id HAVING COUNT(v.incident_id)>=? AND " +
-      "COUNT(CASE WHEN v.choice='off' THEN 1 END)>(COUNT(CASE WHEN v.choice='pass' THEN 1 END)+COUNT(CASE WHEN v.choice='funny' THEN 1 END)) " +
-      "ORDER BY i.category,off_votes DESC,COUNT(v.incident_id) DESC,i.created_at DESC LIMIT 300"
-    ).bind(start,end,weeklyMinimumVotes(env)).all(),
+  // The UTC cron fires twice at 04:05 and 05:05; only one is 00:05 Eastern.
+  if(dow!==1 || p.hour!==0 || p.minute!==5)return;
+  const monday=easternWeekKey(1,d);
+  const start=easternMidnight(monday);
+  const end=easternMidnight(shiftDateKey(monday,7));
+  const existing=await env.DB.prepare(
+    "SELECT 1 FROM weekly_snapshots WHERE week_start=?"
+  ).bind(start).first();
+  if(existing)return;
+  const [worst,counts,funny]=await Promise.all([
+    weeklyAwardCandidates(env,start,end,"worst",true),
     env.DB.prepare(
       "SELECT category,COUNT(*) AS count FROM incidents " +
-      "WHERE state_code='NH' AND status='published' AND created_at>=? AND created_at<? GROUP BY category"
-    ).bind(start,end).all()
+      "WHERE state_code='NH' AND status='published' " +
+      "AND created_at>=? AND created_at<? GROUP BY category"
+    ).bind(start,end).all(),
+    await humorSchemaReady(env) ?
+      weeklyAwardCandidates(env,start,end,"funny",true) : Promise.resolve([])
   ]);
-  const ranks=new Map();
   const statements=[];
-  for(const row of votes.results||[]) {
-    const rank=(ranks.get(row.category)||0)+1;
-    ranks.set(row.category,rank);
-    if(rank>3)continue;
+  for(const row of worst){
     statements.push(env.DB.prepare(
-      "INSERT OR IGNORE INTO weekly_awards(week_start,category,rank,incident_id,off_votes,pass_votes) " +
-      "VALUES(?,?,?,?,?,?)"
-    ).bind(start,row.category,rank,row.id,Number(row.off_votes),Number(row.pass_votes)));
+      "INSERT OR IGNORE INTO weekly_awards " +
+      "(week_start,category,rank,incident_id,off_votes,pass_votes) VALUES(?,?,?,?,?,?)"
+    ).bind(start,row.category,row.rank,row.id,row.off_votes,row.pass_votes));
   }
-  const totals=new Map((counts.results||[]).map(row=>[row.category,Number(row.count)]));
+  const countMap=new Map((counts.results||[]).map(row=>[row.category,Number(row.count)]));
   for(const category of Object.keys(behaviorCategories)) {
     statements.push(env.DB.prepare(
       "INSERT OR IGNORE INTO weekly_category_results(week_start,category,incident_count) VALUES(?,?,?)"
-    ).bind(start,category,totals.get(category)||0));
+    ).bind(start,category,countMap.get(category)||0));
   }
-  if(await humorSchemaReady(env)) {
-    const funniest=await env.DB.prepare(
-      "SELECT i.id," +
-      "COUNT(CASE WHEN v.choice='funny' THEN 1 END) AS funny_votes," +
-      "COUNT(CASE WHEN v.choice='off' THEN 1 END) AS off_votes," +
-      "COUNT(CASE WHEN v.choice='pass' THEN 1 END) AS pass_votes " +
-      "FROM incidents i LEFT JOIN votes_v4 v ON v.incident_id=i.id " +
-      "WHERE i.state_code='NH' AND i.status='published' AND i.created_at>=? AND i.created_at<? " +
-      "GROUP BY i.id HAVING COUNT(v.incident_id)>=? AND " +
-      "funny_votes>(off_votes+pass_votes) " +
-      "ORDER BY funny_votes DESC,COUNT(v.incident_id) DESC,i.created_at DESC LIMIT 3"
-    ).bind(start,end,weeklyMinimumVotes(env)).all();
-    for(const [index,row] of (funniest.results||[]).entries()) {
-      statements.push(env.DB.prepare(
-        "INSERT OR IGNORE INTO weekly_funny_awards" +
-        "(week_start,rank,incident_id,funny_votes,off_votes,pass_votes) VALUES(?,?,?,?,?,?)"
-      ).bind(start,index+1,row.id,Number(row.funny_votes),Number(row.off_votes),Number(row.pass_votes)));
-    }
+  for(const row of funny){
+    statements.push(env.DB.prepare(
+      "INSERT OR IGNORE INTO weekly_funny_awards " +
+      "(week_start,rank,incident_id,funny_votes,off_votes,pass_votes) VALUES(?,?,?,?,?,?)"
+    ).bind(start,row.rank,row.id,row.funny_votes,row.off_votes,row.pass_votes));
   }
-  // Commit the snapshot marker LAST, atomically with winners and category counts.
-  statements.push(env.DB.prepare("INSERT OR IGNORE INTO weekly_snapshots(week_start) VALUES(?)").bind(start));
+  // Store all awards, category totals and the finalization marker atomically.
+  statements.push(env.DB.prepare(
+    "INSERT OR IGNORE INTO weekly_snapshots(week_start) VALUES(?)"
+  ).bind(start));
   await env.DB.batch(statements);
-  console.log("Finalized Eastern weekly results", {week_start:start,winners:statements.length-10});
+  console.log("Finalized Eastern weekly awards",{
+    week_start:start,worst_winners:worst.length,funniest_winners:funny.length
+  });
 }
-
 
 function isCommunityActionAllowed(request) {
   const site=request.headers.get("Sec-Fetch-Site");
