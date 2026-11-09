@@ -360,14 +360,28 @@ async function getAccessKeys(team, refresh = false) {
   if (!refresh && cachedAccessKeys.team === team && cachedAccessKeys.expiresAt > Date.now()) {
     return cachedAccessKeys.keys;
   }
-  const res = await fetch("https://" + team + "/cdn-cgi/access/certs", {
-    redirect: "error", signal: AbortSignal.timeout(5000)
-  });
-  if (!res.ok) throw new Error("Could not retrieve Access signing keys");
-  const certs = await res.json();
-  if (!Array.isArray(certs.keys)) throw new Error("Invalid Access signing keys");
+  let response;
+  try {
+    response = await fetch("https://" + team + "/cdn-cgi/access/certs", {
+      signal: AbortSignal.timeout(8000)
+    });
+  } catch (error) {
+    console.error("Cloudflare Access public-key fetch failed", error?.name, error?.message);
+    throw new Error("KEY_FETCH");
+  }
+  if (!response.ok) {
+    console.error("Cloudflare Access public-key HTTP status", response.status);
+    throw new Error("KEY_HTTP_" + String(response.status));
+  }
+  let certs;
+  try { certs = await response.json(); }
+  catch {
+    console.error("Cloudflare Access public-key response was not JSON");
+    throw new Error("KEY_JSON");
+  }
+  if (!Array.isArray(certs?.keys)) throw new Error("KEY_FORMAT");
   const keys = certs.keys.filter(key => key.kty === "RSA" && key.n && key.e && key.kid);
-  if (!keys.length) throw new Error("No valid Access keys");
+  if (!keys.length) throw new Error("KEY_EMPTY");
   cachedAccessKeys = { team, keys, expiresAt: Date.now() + 300000 };
   return keys;
 }
@@ -396,19 +410,39 @@ async function authorizeAdmin(request, env) {
         !(Array.isArray(payload.aud) ? payload.aud.includes(aud) : payload.aud === aud)) {
       return failed("TOKEN_CLAIMS");
     }
-    let keys = await getAccessKeys(team);
+    let keys;
+    try {
+      keys = await getAccessKeys(team);
+    } catch (error) {
+      return failed(String(error?.message || "").startsWith("KEY_") ? error.message : "KEY_FETCH");
+    }
     let signingKey = keys.find(key => key.kid === header.kid);
     if (!signingKey) {
-      keys = await getAccessKeys(team, true);
+      try { keys = await getAccessKeys(team, true); }
+      catch (error) {
+        return failed(String(error?.message || "").startsWith("KEY_") ? error.message : "KEY_FETCH");
+      }
       signingKey = keys.find(key => key.kid === header.kid);
     }
     if (!signingKey) return failed("SIGNING_KEY");
-    const key = await crypto.subtle.importKey("jwk",
-      { kty: "RSA", n: signingKey.n, e: signingKey.e, alg: "RS256", ext: true },
-      { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["verify"]);
-    const valid = await crypto.subtle.verify(
-      "RSASSA-PKCS1-v1_5", key, base64UrlBytes(parts[2]),
-      new TextEncoder().encode(parts[0] + "." + parts[1]));
+    let key;
+    try {
+      key = await crypto.subtle.importKey("jwk",
+        { kty: "RSA", n: signingKey.n, e: signingKey.e, alg: "RS256", ext: true },
+        { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["verify"]);
+    } catch (error) {
+      console.error("Cloudflare Access public-key import failed", error?.name, error?.message);
+      return failed("KEY_IMPORT");
+    }
+    let valid;
+    try {
+      valid = await crypto.subtle.verify(
+        "RSASSA-PKCS1-v1_5", key, base64UrlBytes(parts[2]),
+        new TextEncoder().encode(parts[0] + "." + parts[1]));
+    } catch (error) {
+      console.error("Cloudflare Access JWT signature verification threw", error?.name, error?.message);
+      return failed("SIGNATURE_ERROR");
+    }
     return valid ? { email: adminEmail } : failed("SIGNATURE");
   } catch (error) {
     console.error("Admin authentication verification failed", error?.message || "error");
