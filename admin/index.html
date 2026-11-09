@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow"><meta name="theme-color" content="#f7c744">
+<title>Admin Dashboard | Vote Them Off the Road</title>
+<link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/assets/styles.css"><link rel="stylesheet" href="/assets/admin.css"></head>
+<body><a class="skip" href="#main">Skip to content</a>
+<div class="announcement">PRIVATE ADMIN DASHBOARD <strong>• NEW HAMPSHIRE</strong></div>
+<header><div class="container header-inner">
+<a class="brand" href="/" aria-label="Vote Them Off the Road home"><span class="brand-mark" aria-hidden="true">✓</span><span class="brand-words">Vote Them Off<br>the Road<small>SITE MANAGEMENT.</small></span></a>
+<nav class="nav"><a href="/nh/" target="_blank" rel="noopener">Public site ↗</a><a class="nav-cta" href="/guidelines/" target="_blank" rel="noopener">Site rules ↗</a></nav>
+</div></header>
+<main id="main">
+<section class="admin-hero"><div class="container admin-hero-inner"><div><div class="section-kicker">Your control room</div><h1>Admin dashboard.</h1><p>Review reports, manage published incidents and keep the community entertaining.</p>
+<p id="admin-signed-in" class="admin-signed-in"></p></div>
+<button id="refresh-admin" class="btn btn-primary" type="button">↻ Refresh dashboard</button></div></section>
+<section class="section admin-section"><div class="container">
+<p id="admin-status" class="admin-status" role="status" aria-live="polite">Loading dashboard…</p>
+<div class="admin-stats" id="admin-stats"></div>
+<div class="admin-heading"><div><div class="section-kicker">Reports first</div><h2>Removal requests & reports</h2></div><span class="admin-note">A report does not automatically hide a post.</span></div>
+<div id="admin-reports" class="admin-list"></div>
+<div class="admin-heading admin-heading-spaced"><div><div class="section-kicker">The whole board</div><h2>Manage incidents</h2></div></div>
+<div id="admin-incidents" class="admin-list"></div>
+<p class="admin-footnote">“Remove from site” unpublishes an incident; it does not permanently erase database or photo storage records. Permanent deletion tools can be added separately.</p>
+</div></section></main>
+<footer class="footer"><div class="container"><div class="footer-bottom">Vote Them Off the Road • Private administrator area</div></div></footer>
+<script src="/assets/site.js" defer></script><script src="/assets/admin.js" defer></script></body></html>
