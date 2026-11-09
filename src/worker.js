@@ -312,6 +312,41 @@ async function juryCheckin(request,env) {
   ).bind(voter,day).run();
   return json({ok:true,day,already_checked_in:Number(result.meta?.changes||0)===0});
 }
+
+async function juryStreakSave(request,env) {
+  if (!(await gameSchemaReady(env))) return json({error:"Streak recovery is not yet available"},503);
+  if (!isCommunityActionAllowed(request)) return json({error:"Invalid request origin"},403);
+  const voter=await voterHash(request);
+  if(!voter)return json({error:"Reload the page first"},428);
+  if(!(await limitJuryAction(request,env)))return json({error:"Too many requests. Try again shortly."},429);
+  const today=easternDateKey();
+  const missed=shiftDateKey(today,-1);
+  const dates=[missed,...[1,2,3].map(n=>shiftDateKey(missed,-n))];
+  const cutoff=easternMidnight(shiftDateKey(missed,-3));
+  const end=easternMidnight(today);
+  const [votes,checkins,saved]=await Promise.all([
+    env.DB.prepare(
+      "SELECT created_at FROM votes WHERE voter_key_hash=? AND created_at>=? AND created_at<? LIMIT 1000"
+    ).bind(voter,cutoff,end).all(),
+    env.DB.prepare(
+      "SELECT eastern_day FROM jury_daily_checkins WHERE voter_key_hash=? AND eastern_day>=? AND eastern_day<?"
+    ).bind(voter,shiftDateKey(missed,-3),today).all(),
+    env.DB.prepare(
+      "SELECT saved_day FROM jury_streak_saves WHERE voter_key_hash=? AND saved_day>=? AND saved_day<?"
+    ).bind(voter,shiftDateKey(missed,-3),today).all()
+  ]);
+  const days=new Set((votes.results||[]).map(row=>
+    easternDateKey(new Date(Number(row.created_at)*1000))));
+  for(const row of checkins.results||[])days.add(row.eastern_day);
+  for(const row of saved.results||[])days.add(row.saved_day);
+  if(days.has(missed) || !dates.slice(1).every(day=>days.has(day)))
+    return json({error:"No eligible missed day. A three-day streak immediately before yesterday is required."},409);
+  const savedResult=await env.DB.prepare(
+    "INSERT OR IGNORE INTO jury_streak_saves(voter_key_hash,eastern_month,saved_day) VALUES(?,?,?)"
+  ).bind(voter,missed.slice(0,7),missed).run();
+  if(!savedResult.meta?.changes)return json({error:"Your monthly streak save has already been used."},409);
+  return json({ok:true,saved_day:missed,message:"Your missed day was saved. Your jury streak is protected."});
+}
 async function getBattle(request,env) {
   if (!(await gameSchemaReady(env)) || !(await featureSchemaReady(env)))
     return json({ready:false,message:"Head-to-head battles open after the database migration."});
@@ -1209,6 +1244,8 @@ export default {
       if (pathname === "/api/my-stats" && request.method === "GET") return withVoterCookie(request, await myParticipation(request, env));
       if (pathname === "/api/jury/checkin" && request.method === "POST")
         return juryCheckin(request,env);
+      if (pathname === "/api/jury/streak-save" && request.method === "POST")
+        return juryStreakSave(request,env);
       if (pathname === "/api/jury/battle" && request.method === "GET")
         return withVoterCookie(request,await getBattle(request,env));
       if (pathname === "/api/jury/battle" && request.method === "POST")
