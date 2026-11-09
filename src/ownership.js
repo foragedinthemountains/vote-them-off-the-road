@@ -69,7 +69,7 @@ async function verifiedWorkosSubject(token,clientId){
   const header=parsePart(parts[0],2048);
   const claims=parsePart(parts[1],8192);
   const now=Math.floor(Date.now()/1000);
-  // WorkOS session JWTs contain "client_id", not Clerk's "azp" or "aud".
+  // WorkOS session JWTs use the configured client_id claim.
   // Only the exact WorkOS project we configured may issue member sessions.
   if(header.alg!=="RS256" || typeof header.kid!=="string" ||
      (header.typ && header.typ!=="JWT") ||
