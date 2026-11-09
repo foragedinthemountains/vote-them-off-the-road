@@ -174,7 +174,7 @@ The browser-keyed `GET /api/my-stats` endpoint tracks anonymous distinct inciden
 
 - Weekly contests run Monday 00:00 through the following Monday 00:00 Eastern.
 - Eligible cases were **first submitted during that week** and are currently published. Regular Off/Pass votes accumulate only once per browser/incident; there is no separate weekly vote.
-- The live podium displays up to the three highest off-vote cases in each category. An **official weekly award** requires at least `WEEKLY_MIN_VOTES=5` total regular votes **and more Off than Pass votes**. Otherwise the card is provisional/ineligible. Former weeks with archived snapshots show those recorded winners only.
+- The live Worst podium displays up to three highest **Off + unique-browser head-to-head win scores** in each category. An **official weekly award** requires at least `WEEKLY_MIN_VOTES=5` combined reactions/duel points and a Worst score exceeding Pass + Funny reactions. Otherwise the card is provisional/ineligible. Former weeks with archived snapshots show those recorded winners only.
 - Users can generate a 1200×630 branded canvas PNG for social sharing. The graphic states that votes are community opinion and not verified traffic violations.
 - The configured week/archive selector supports the current week and the previous eight weeks. Admin auto-hiding and permanent removal exclude stories from public podium and archived link displays.
 
@@ -182,7 +182,7 @@ The browser-keyed `GET /api/my-stats` endpoint tracks anonymous distinct inciden
 
 - `POST /api/jury/checkin`: maintain an active day only when already caught up with all published incidents.
 - `POST /api/jury/streak-save`: one monthly earned rescue, server-validated against genuine preceding activity.
-- `GET /api/jury/battle` / `POST /api/jury/battle`: anonymously judge the worse of two currently published incident stories. At most one stored choice per browser per unordered pair. Battles **do not** add Off/Pass votes or affect regular rankings.
+- `GET /api/jury/battle` / `POST /api/jury/battle`: anonymously judge the worse of two currently published incident stories. At most one stored choice per browser per unordered pair. Battles **do not** change the original Off/Pass/Funny reaction totals. Eligible same-category, same-week duel wins **do** add independent points to weekly award rankings.
 - `GET /api/jury/prediction` / `POST /api/jury/prediction`: submit or update one anonymous prediction about the **most-submitted driving category during the upcoming Eastern week**. A prediction is scored only when that future week has an archived, nonzero category total. Tied top categories both count as correct.
 - The public site uses rate limiting and same-origin checks for these game writes, and the game endpoints stay disabled when required D1 tables are absent.
 - No points or badges reward filing reports or attempting to identify drivers.
@@ -247,3 +247,17 @@ SELECT id, completed_at FROM humor_migration_complete;
 ```
 
 The new count should initially be at least the original count; after voting resumes, only `votes_v4` is updated. Wait up to 30 seconds for the Worker's schema cache to detect the readiness marker, then refresh `/nh/` and check for the third reaction and new weekly panel.
+
+## Category-specific head-to-head and combined weekly award scores
+
+The site compares only pairs of NH cases **from the exact same category and the same current Eastern Monday–Sunday week**. Visitors who choose a category in the public feed filter get head-to-head pairings *within that selected category*. With just one Funny/Unexpected and one Other case, the head-to-head panel correctly displays a "need two matching cases" message instead of asking users to choose between unrelated stories.
+
+- **Worst of the Week** = one point per Off reaction, plus one point per browser that picks that incident in a head-to-head duel. Qualification requires five combined actions and more Worst points than Pass + Funny reactions. Funny/Unexpected cases are excluded.
+- **Funniest Moment of the Week** = one point per Funny reaction, plus one point per browser choosing a Funny/Unexpected case in a comedy duel. Qualification requires five combined actions and more Funny points than Off + Pass reactions. Other categories remain eligible through Funny reactions.
+- Regular reaction tallies and duel-win points are shown **separately**, followed by the total weekly score. A browser can vote on an incident normally and also make a duel choice, but cannot inflate a case's weekly duel score by picking that same case across multiple pairings. One distinct browser contributes at most **one duel win point per case per week**, via `COUNT(DISTINCT voter_key_hash)`.
+- Battle API prevents a cross-category or stale-week pairing on both display and submission. Invalid cross-category POSTs are rejected. Battle decisions from before this rule change that compare different categories are not included in weekly scoring.
+- Only duels **cast within the active week** between cases **first submitted during that week** count toward weekly results. Monday finalization freezes the ranked podium positions; later duels can't change a past week's final standings.
+- Uses the existing `battle_votes` records, migrations `0003` and `0004`, and existing archived award tables. **No additional SQL migration is needed.**
+- The persistent duel data can be reused for monthly and annual awards, but month/year brackets, separate cutoffs and official archives are **future work**, not currently live.
+
+Acceptance tests: /api/jury/battle should return `pair:null` with a clear explanation when only one Funny and one Other case exist. Adding two cases of the same category in the same Eastern week enables a matchup. A successful duel must increase the winner's `battle_wins` on the weekly board, but must not change the underlying regular reaction totals. Funny-category duels contribute to the Funniest board only.
