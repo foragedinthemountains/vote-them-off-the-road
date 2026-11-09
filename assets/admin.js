@@ -38,7 +38,7 @@
     button.addEventListener("click", handler);
     return button;
   }
-  async function mutate(url, body, success) {
+  async function mutate(url, body, success, method = "PATCH") {
     if (busy) return;
     busy = true;
     refresh.disabled = true;
@@ -46,7 +46,7 @@
     statusNode.dataset.state = "";
     try {
       await getJson(url, {
-        method: "PATCH",
+        method,
         headers: { "Content-Type": "application/json", "Accept": "application/json" },
         body: JSON.stringify(body)
       });
@@ -143,6 +143,12 @@
           }
         }));
       }
+      actions.append(actionButton("Permanently delete + photos", "action-delete", () => {
+        const typed = prompt("PERMANENT DELETION: This erases the incident, its photos, votes and reports. It cannot be undone. Type DELETE to confirm:");
+        if (typed !== "DELETE") return;
+        mutate("/admin/api/incidents/" + encodeURIComponent(incident.id),
+          { confirm: "DELETE " + incident.id }, "Incident and its stored photos permanently deleted.", "DELETE");
+      }));
       item.append(actions);
       incidentsNode.append(item);
     }
@@ -156,7 +162,8 @@
         getJson("/admin/api/reports"),
         getJson("/admin/api/incidents")
       ]);
-      signedIn.textContent = "Signed in as " + me.email;
+      signedIn.textContent = "Signed in as " + me.email +
+        (me.alerts_configured ? " · Email alerts configured" : " · Email alerts awaiting setup");
       const reports = reportsData.reports || [];
       const incidents = incidentsData.incidents || [];
       const open = reports.filter(r => ["open", "reviewing"].includes(r.status)).length;

@@ -111,3 +111,11 @@ Admin endpoints (all JWT-protected):
 - `PATCH /admin/api/incidents/:id` with `status`: `published`, `hidden`, `removed`.
 
 The dashboard lets the operator hide a post and resolve its report together. **Reports do not automatically unpublish posts.** The status `removed` means removed from public pages; it does not permanently erase D1 records or R2 photos. Add durable purge, notifications, pagination, and an audit log before substantial traffic.
+
+## Admin notifications and permanent deletion (Phase 2E)
+
+- Authenticated operators can choose **Permanently delete + photos** in `/admin/` and must type `DELETE` to confirm. This calls `DELETE /admin/api/incidents/:id` with a second server-side confirmation (`{ "confirm": "DELETE <incident-id>" }`). The endpoint requires the same signed Access JWT and same-origin checks as all other admin mutations.
+- The Worker sets the incident to `removed` before deleting its associated R2 keys, then deletes the D1 incident. SQLite foreign-key cascades remove media metadata, votes and reports. A storage failure leaves the incident hidden for retry. Non-R2 storage is not deleted automatically. Manual database deletion can leave orphaned R2 files.
+- Report emails use the existing secret `ADMIN_EMAIL` as recipient; the sender is `alerts@votethemofftheroad.com`. **Email sending is disabled until configured**.
+- For free alerts to your own inbox, under Cloudflare **Email Service > Email Routing > Destination Addresses**, add the same email used as `ADMIN_EMAIL` and follow the verification email. Configure the site's sender domain for Email Service if Cloudflare prompts you. Once Email Service is ready, add `"send_email": [{ "name": "REPORT_ALERT_EMAIL" }]` to `wrangler.jsonc`, then deploy. Do not add the binding before Email Service is enabled for the account.
+- Every successfully persisted report/removal request schedules a notification through `ctx.waitUntil` without blocking the reporter. Email delivery failure is logged and doesn't reject the report. The email links to the protected dashboard and doesn't disclose the reporter's contact details. When the binding is absent the dashboard reports "Email alerts awaiting setup".

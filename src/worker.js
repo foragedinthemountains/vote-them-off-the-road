@@ -314,7 +314,29 @@ async function createIncident(request, env) {
   }
 }
 
-async function createReport(id, request, env) {
+// Optional native Cloudflare Email Service alerts. No emails are sent until
+// a REPORT_ALERT_EMAIL binding is configured and the recipient is verified.
+async function notifyAdminOfNewReport(env, incidentId, title, reason) {
+  if (!env.REPORT_ALERT_EMAIL || !env.ADMIN_EMAIL) return;
+  try {
+    await env.REPORT_ALERT_EMAIL.send({
+      to: String(env.ADMIN_EMAIL).trim(),
+      from: "alerts@" + SITE_HOST,
+      subject: "Vote Them Off the Road: New " + reason.replace(/_/g, " ") + " report",
+      text: "A report or removal request needs review.\n\n" +
+        "Incident: " + title + "\n" +
+        "Reason: " + reason.replace(/_/g, " ") + "\n" +
+        "Incident ID: " + incidentId + "\n\n" +
+        "Review: " + SITE_ORIGIN + "/admin/\n\n" +
+        "The incident has not been hidden automatically."
+    });
+  } catch (error) {
+    // Never drop a valid report due to an email service outage.
+    console.error("Admin email notification failed", error?.code || "error", error?.message || "");
+  }
+}
+
+async function createReport(id, request, env, ctx) {
   if (!idPattern.test(id)) return json({ error: "Not found" }, 404);
   const prepared = await prepareWrite(request, env, "report");
   if (prepared.response) return prepared.response;
@@ -325,19 +347,22 @@ async function createReport(id, request, env) {
   if (note.length > 3000 || email.length > 254 || (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))) {
     return json({ error: "Invalid report details or contact email" }, 400);
   }
-  const incident = await env.DB.prepare("SELECT 1 FROM incidents WHERE id = ? AND status = 'published'").bind(id).first();
+  const incident = await env.DB.prepare("SELECT title FROM incidents WHERE id = ? AND status = 'published'").bind(id).first();
   if (!incident) return json({ error: "Not found" }, 404);
   await env.DB.prepare(`
     INSERT INTO reports (id, incident_id, reason, details, contact_email)
     VALUES (?, ?, ?, ?, ?)
   `).bind(crypto.randomUUID(), id, reason, note, email || null).run();
+  if (env.REPORT_ALERT_EMAIL && ctx?.waitUntil) {
+    ctx.waitUntil(notifyAdminOfNewReport(env, id, incident.title, reason));
+  }
   return json({ ok: true, message: "Report received and pending review. The incident stays visible unless it is hidden or removed." }, 201);
 }
 
 
 // Inlined so the authenticated dashboard works even when the static asset
 // resolver does not map /admin/ to /admin/index.html in production.
-const ADMIN_DASHBOARD_HTML = "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n<meta name=\"robots\" content=\"noindex,nofollow\"><meta name=\"theme-color\" content=\"#f7c744\">\n<title>Admin Dashboard | Vote Them Off the Road</title>\n<link rel=\"icon\" href=\"/assets/favicon.svg\" type=\"image/svg+xml\">\n<link rel=\"stylesheet\" href=\"/assets/styles.css\"><link rel=\"stylesheet\" href=\"/assets/admin.css\"></head>\n<body><a class=\"skip\" href=\"#main\">Skip to content</a>\n<div class=\"announcement\">PRIVATE ADMIN DASHBOARD <strong>• NEW HAMPSHIRE</strong></div>\n<header><div class=\"container header-inner\">\n<a class=\"brand\" href=\"/\" aria-label=\"Vote Them Off the Road home\"><span class=\"brand-mark\" aria-hidden=\"true\">✓</span><span class=\"brand-words\">Vote Them Off<br>the Road<small>SITE MANAGEMENT.</small></span></a>\n<nav class=\"nav\"><a href=\"/nh/\" target=\"_blank\" rel=\"noopener\">Public site ↗</a><a class=\"nav-cta\" href=\"/guidelines/\" target=\"_blank\" rel=\"noopener\">Site rules ↗</a></nav>\n</div></header>\n<main id=\"main\">\n<section class=\"admin-hero\"><div class=\"container admin-hero-inner\"><div><div class=\"section-kicker\">Your control room</div><h1>Admin dashboard.</h1><p>Review reports, manage published incidents and keep the community entertaining.</p>\n<p id=\"admin-signed-in\" class=\"admin-signed-in\"></p></div>\n<button id=\"refresh-admin\" class=\"btn btn-primary\" type=\"button\">↻ Refresh dashboard</button></div></section>\n<section class=\"section admin-section\"><div class=\"container\">\n<p id=\"admin-status\" class=\"admin-status\" role=\"status\" aria-live=\"polite\">Loading dashboard…</p>\n<div class=\"admin-stats\" id=\"admin-stats\"></div>\n<div class=\"admin-heading\"><div><div class=\"section-kicker\">Reports first</div><h2>Removal requests & reports</h2></div><span class=\"admin-note\">A report does not automatically hide a post.</span></div>\n<div id=\"admin-reports\" class=\"admin-list\"></div>\n<div class=\"admin-heading admin-heading-spaced\"><div><div class=\"section-kicker\">The whole board</div><h2>Manage incidents</h2></div></div>\n<div id=\"admin-incidents\" class=\"admin-list\"></div>\n<p class=\"admin-footnote\">“Remove from site” unpublishes an incident; it does not permanently erase database or photo storage records. Permanent deletion tools can be added separately.</p>\n</div></section></main>\n<footer class=\"footer\"><div class=\"container\"><div class=\"footer-bottom\">Vote Them Off the Road • Private administrator area</div></div></footer>\n<script src=\"/assets/site.js\" defer></script><script src=\"/assets/admin.js\" defer></script></body></html>\n";
+const ADMIN_DASHBOARD_HTML = "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n<meta name=\"robots\" content=\"noindex,nofollow\"><meta name=\"theme-color\" content=\"#f7c744\">\n<title>Admin Dashboard | Vote Them Off the Road</title>\n<link rel=\"icon\" href=\"/assets/favicon.svg\" type=\"image/svg+xml\">\n<link rel=\"stylesheet\" href=\"/assets/styles.css\"><link rel=\"stylesheet\" href=\"/assets/admin.css\"></head>\n<body><a class=\"skip\" href=\"#main\">Skip to content</a>\n<div class=\"announcement\">PRIVATE ADMIN DASHBOARD <strong>• NEW HAMPSHIRE</strong></div>\n<header><div class=\"container header-inner\">\n<a class=\"brand\" href=\"/\" aria-label=\"Vote Them Off the Road home\"><span class=\"brand-mark\" aria-hidden=\"true\">✓</span><span class=\"brand-words\">Vote Them Off<br>the Road<small>SITE MANAGEMENT.</small></span></a>\n<nav class=\"nav\"><a href=\"/nh/\" target=\"_blank\" rel=\"noopener\">Public site ↗</a><a class=\"nav-cta\" href=\"/guidelines/\" target=\"_blank\" rel=\"noopener\">Site rules ↗</a></nav>\n</div></header>\n<main id=\"main\">\n<section class=\"admin-hero\"><div class=\"container admin-hero-inner\"><div><div class=\"section-kicker\">Your control room</div><h1>Admin dashboard.</h1><p>Review reports, manage published incidents and keep the community entertaining.</p>\n<p id=\"admin-signed-in\" class=\"admin-signed-in\"></p></div>\n<button id=\"refresh-admin\" class=\"btn btn-primary\" type=\"button\">↻ Refresh dashboard</button></div></section>\n<section class=\"section admin-section\"><div class=\"container\">\n<p id=\"admin-status\" class=\"admin-status\" role=\"status\" aria-live=\"polite\">Loading dashboard…</p>\n<div class=\"admin-stats\" id=\"admin-stats\"></div>\n<div class=\"admin-heading\"><div><div class=\"section-kicker\">Reports first</div><h2>Removal requests & reports</h2></div><span class=\"admin-note\">A report does not automatically hide a post.</span></div>\n<div id=\"admin-reports\" class=\"admin-list\"></div>\n<div class=\"admin-heading admin-heading-spaced\"><div><div class=\"section-kicker\">The whole board</div><h2>Manage incidents</h2></div></div>\n<div id=\"admin-incidents\" class=\"admin-list\"></div>\n<p class=\"admin-footnote\">“Remove from site” is reversible. “Permanently delete + photos” destroys the incident, its votes and reports, and associated R2 photos. This action cannot be undone.</p>\n</div></section></main>\n<footer class=\"footer\"><div class=\"container\"><div class=\"footer-bottom\">Vote Them Off the Road • Private administrator area</div></div></footer>\n<script src=\"/assets/site.js\" defer></script><script src=\"/assets/admin.js\" defer></script></body></html>\n";
 
 /* Private admin API. Both Cloudflare Access and Worker-side signed JWT validation
    must succeed. No admin credentials or user report details are exposed publicly. */
@@ -460,9 +485,41 @@ function adminId(value) {
   return idPattern.test(value || "");
 }
 
+// Permanent deletion: hide first, delete R2 objects, then cascade-delete D1 records.
+// If an external storage operation fails, leave a hidden incident for safe retry.
+async function permanentlyDeleteIncident(env, id, identity) {
+  const current = await env.DB.prepare("SELECT id FROM incidents WHERE id=?").bind(id).first();
+  if (!current) return json({ error: "Incident not found" }, 404);
+
+  await env.DB.prepare("UPDATE incidents SET status='removed', updated_at=unixepoch() WHERE id=?").bind(id).run();
+  const media = await env.DB.prepare(
+    "SELECT storage_provider, storage_key FROM incident_media WHERE incident_id=?"
+  ).bind(id).all();
+  const rows = media.results || [];
+  if (rows.some(row => row.storage_provider !== "r2")) {
+    return json({ error: "Incident hidden but non-R2 media must be deleted manually before permanent deletion." }, 409);
+  }
+  const keys = [...new Set(rows.map(row => row.storage_key).filter(Boolean))];
+  if (keys.length && !env.PHOTOS) {
+    return json({ error: "Incident hidden. R2 is unavailable; retry when storage is connected." }, 503);
+  }
+  try {
+    for (let start = 0; start < keys.length; start += 1000) {
+      await env.PHOTOS.delete(keys.slice(start, start + 1000));
+    }
+  } catch (error) {
+    console.error("R2 permanent deletion failed", id, error?.message || "error");
+    return json({ error: "Photo deletion failed. Incident is hidden; retry permanent deletion." }, 503);
+  }
+  // ON DELETE CASCADE removes associated media rows, votes and reports.
+  await env.DB.prepare("DELETE FROM incidents WHERE id=?").bind(id).run();
+  console.log("Admin permanently deleted incident", { email: identity.email, id, photo_count: keys.length });
+  return json({ ok: true, deleted: true, photo_count: keys.length });
+}
+
 async function adminApi(request, env, path, identity) {
   if (path === "/admin/api/me" && request.method === "GET") {
-    return json({ ok: true, email: identity.email });
+    return json({ ok: true, email: identity.email, alerts_configured: Boolean(env.REPORT_ALERT_EMAIL && env.ADMIN_EMAIL) });
   }
   if (path === "/admin/api/reports" && request.method === "GET") {
     const rows = await env.DB.prepare(`
@@ -487,13 +544,18 @@ async function adminApi(request, env, path, identity) {
     `).all();
     return json({ incidents: rows.results || [] });
   }
-  if (request.method !== "PATCH") return json({ error: "Not found" }, 404);
+  if (request.method !== "PATCH" && request.method !== "DELETE") return json({ error: "Not found" }, 404);
   if (!isAdminMutationAllowed(request)) return json({ error: "Invalid request origin" }, 403);
   const body = await parseBody(request);
   if (body.error) return json({ error: body.error }, body.status);
   const incidentMatch = /^\/admin\/api\/incidents\/([A-Za-z0-9_-]{6,80})$/.exec(path);
   if (incidentMatch) {
     const id = incidentMatch[1];
+    if (request.method === "DELETE") {
+      if (body.value.confirm !== "DELETE " + id)
+        return json({ error: "Explicit deletion confirmation is required" }, 400);
+      return permanentlyDeleteIncident(env, id, identity);
+    }
     const state = body.value.status;
     if (!["published", "hidden", "removed"].includes(state)) {
       return json({ error: "Invalid incident status" }, 400);
@@ -508,6 +570,7 @@ async function adminApi(request, env, path, identity) {
   }
   const reportMatch = /^\/admin\/api\/reports\/([A-Za-z0-9_-]{6,80})$/.exec(path);
   if (reportMatch) {
+    if (request.method !== "PATCH") return json({ error: "Not found" }, 404);
     const id = reportMatch[1];
     const action = body.value.action;
     if (!["reviewing", "resolve", "dismiss", "reopen", "hide_and_resolve"].includes(action)) {
@@ -584,7 +647,7 @@ async function adminRequest(request, env, pathname) {
 }
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const { pathname } = url;
     if (pathname === "/admin") return Response.redirect(SITE_ORIGIN + "/admin/", 302);
@@ -625,7 +688,7 @@ export default {
       }
       const reportMatch = /^\/api\/incidents\/([a-zA-Z0-9_-]{6,80})\/reports$/.exec(pathname);
       if (reportMatch) {
-        if (request.method === "POST") return await createReport(reportMatch[1], request, env);
+        if (request.method === "POST") return await createReport(reportMatch[1], request, env, ctx);
         return json({ error: "Method not allowed" }, 405, { Allow: "POST" });
       }
       if (pathname.startsWith("/api/incidents/")) {

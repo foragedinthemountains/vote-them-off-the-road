@@ -26,3 +26,5 @@
 .admin-actions button:hover{filter:brightness(.96)}.admin-actions button:focus-visible{outline:3px solid #377bdb;outline-offset:3px}
 .admin-empty{color:var(--muted)}.admin-footnote{margin-top:26px}
 @media(max-width:650px){.admin-stats{grid-template-columns:1fr 1fr}.admin-actions button{flex:1}.admin-hero .btn{width:100%}}
+
+.admin-actions .action-delete{background:#ae2626;color:#fff;border-color:#7c1010}
