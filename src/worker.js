@@ -260,7 +260,7 @@ async function weeklyBoard(env, offset=0) {
 
 
 
-async function funniestWeekBoard(env, offset=0) {
+async function funniestWeekBoard(env, offset=0, category='') {
   const monday=easternWeekKey(offset);
   const weekStart=easternMidnight(monday);
   const weekEnd=easternMidnight(shiftDateKey(monday,7));
@@ -269,6 +269,8 @@ async function funniestWeekBoard(env, offset=0) {
     return json({ready:false,week_start:weekStart,week_end:weekEnd,
       podiums:[],minimum_votes:minimum});
   }
+  if (category && !Object.hasOwn(behaviorCategories,category))
+    return json({error:"Unknown incident category"},400);
   let archived=false, podiums=[];
   if(offset>0 && await gameSchemaReady(env)) {
     archived=Boolean(await env.DB.prepare(
@@ -279,8 +281,9 @@ async function funniestWeekBoard(env, offset=0) {
         "SELECT a.incident_id AS id,i.title,i.category,a.rank," +
         "a.off_votes,a.pass_votes,a.funny_votes FROM weekly_funny_awards a " +
         "JOIN incidents i ON i.id=a.incident_id " +
-        "WHERE a.week_start=? AND i.status='published' ORDER BY a.rank"
-      ).bind(weekStart).all();
+        "WHERE a.week_start=? AND i.status='published' " +
+        (category ? "AND i.category=? " : "") + "ORDER BY a.rank"
+      ).bind(weekStart,...(category?[category]:[])).all();
       podiums=(rows.results||[]).map(row=>({...row,qualified:true,
         total_votes:Number(row.off_votes)+Number(row.pass_votes)+Number(row.funny_votes)}));
     }
@@ -293,9 +296,10 @@ async function funniestWeekBoard(env, offset=0) {
       "COUNT(CASE WHEN v.choice='funny' THEN 1 END) AS funny_votes " +
       "FROM incidents i LEFT JOIN votes_v4 v ON v.incident_id=i.id " +
       "WHERE i.state_code='NH' AND i.status='published' AND i.created_at>=? AND i.created_at<? " +
+      (category ? "AND i.category=? " : "") +
       "GROUP BY i.id HAVING funny_votes>0 OR i.category='funny_unexpected' " +
       "ORDER BY funny_votes DESC,COUNT(v.incident_id) DESC,i.created_at DESC LIMIT 3"
-    ).bind(weekStart,weekEnd).all();
+    ).bind(weekStart,weekEnd,...(category?[category]:[])).all();
     podiums=(result.results||[]).map((row,index)=>{
       const total=Number(row.funny_votes)+Number(row.off_votes)+Number(row.pass_votes);
       return {...row,rank:index+1,total_votes:total,
@@ -303,7 +307,7 @@ async function funniestWeekBoard(env, offset=0) {
     });
   }
   return json({ready:true,week_start:weekStart,week_end:weekEnd,
-    minimum_votes:minimum,archived,history_offset:offset,podiums});
+    minimum_votes:minimum,archived,history_offset:offset,category,podiums});
 }
 
 async function snapshotPreviousWeek(env, scheduledAt = Date.now()) {
@@ -1451,7 +1455,8 @@ export default {
         const offset=Number(url.searchParams.get("offset") || "0");
         if (!Number.isSafeInteger(offset) || offset<0 || offset>12)
           return json({error:"Invalid week offset"},400);
-        return funniestWeekBoard(env,offset);
+        const category=url.searchParams.get("category")||"";
+        return funniestWeekBoard(env,offset,category);
       }
       if (pathname === "/api/weekly-board" && request.method === "GET") {
         const offset=Number(url.searchParams.get("offset") || "0");
