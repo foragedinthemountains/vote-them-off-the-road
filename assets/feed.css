@@ -200,3 +200,7 @@
 .funny-fb{background:#1877f2;color:white;border-color:#1877f2}
 .funny-fb:hover{background:#0b5ac6;color:white}
 @media(max-width:560px){.funniest-week{padding:16px}.funniest-heading{align-items:flex-start;gap:10px}.funniest-emoji{font-size:34px}}
+
+#funniest{scroll-margin-top:88px}
+@media(min-width:1490px){#funniest{scroll-margin-top:30px}}
+@media(max-width:700px){#funniest{scroll-margin-top:70px}}
