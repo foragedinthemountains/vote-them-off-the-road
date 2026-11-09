@@ -43,7 +43,8 @@
         (item.location_label || "New Hampshire") + " · " + category);
       const totals = make("p", "featured-votes", 
         "🚫 " + Number(item.off_votes || 0) + " Vote Them Off   ·   ✓ " +
-        Number(item.pass_votes || 0) + " Give 'Em a Pass");
+        Number(item.pass_votes || 0) + " Give 'Em a Pass" +
+        (Number(item.funny_votes||0)>0?"   ·   😂 "+item.funny_votes+" Funny":""));
       const actions = make("div", "featured-actions");
       const detailUrl = "/nh/?incident=" + encodeURIComponent(item.id) + "#incidents";
       const vote = make("a", "featured-vote-link", item.my_vote ?
