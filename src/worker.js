@@ -451,68 +451,87 @@ async function juryStreakSave(request,env) {
   if(!savedResult.meta?.changes)return json({error:"Your monthly streak save has already been used."},409);
   return json({ok:true,saved_day:missed,message:"Your missed day was saved. Your jury streak is protected."});
 }
+// One head-to-head duel requires two published cases in the SAME category
+// and the SAME Eastern competition week. This keeps every duel relevant to
+// the current weekly leaderboard and avoids mixing comedy with bad driving.
 async function getBattle(request,env) {
   if (!(await gameSchemaReady(env)) || !(await featureSchemaReady(env)))
     return json({ready:false,message:"Head-to-head battles open after the database migration."});
   const voter=await voterHash(request);
-  if (!voter) return json({ready:false,message:"Reload the page to activate your jury ID."});
-  const [posts,played]=await Promise.all([
-    env.DB.prepare(
-      "SELECT id,title,description,category,location_label FROM incidents " +
-      "WHERE state_code='NH' AND status='published' ORDER BY RANDOM() LIMIT 28"
-    ).all(),
-    env.DB.prepare("SELECT left_id,right_id FROM battle_votes WHERE voter_key_hash=? ORDER BY created_at DESC LIMIT 2000")
-      .bind(voter).all()
-  ]);
-  const entries=posts.results||[];
-  const previous=new Set((played.results||[]).map(row=>row.left_id+"|"+row.right_id));
-  let best=null;
-  for(let i=0;i<entries.length;i++) {
-    for(let j=i+1;j<entries.length;j++) {
-      const x=entries[i],y=entries[j];
-      const sorted=[x.id,y.id].sort();
-      if(previous.has(sorted.join("|")))continue;
-      const same=x.category===y.category;
-      if(same) { best=[x,y];break; }
-      if(!best) best=[x,y];
-    }
-    if(best?.[0].category===best?.[1].category) break;
+  if(!voter)return json({ready:false,message:"Reload the page to activate your jury ID."});
+  const start=currentWeekStart(),end=nextEasternWeekStart();
+  const match=await env.DB.prepare(
+    "SELECT a.id AS left_id,b.id AS right_id,a.category FROM incidents a " +
+    "JOIN incidents b ON b.category=a.category AND a.id<b.id " +
+    "WHERE a.state_code='NH' AND b.state_code='NH' " +
+    "AND a.status='published' AND b.status='published' " +
+    "AND a.created_at>=? AND a.created_at<? AND b.created_at>=? AND b.created_at<? " +
+    "AND NOT EXISTS (SELECT 1 FROM battle_votes bv WHERE bv.left_id=a.id AND bv.right_id=b.id " +
+    "AND bv.voter_key_hash=?) ORDER BY RANDOM() LIMIT 1"
+  ).bind(start,end,start,end,voter).first();
+  if(!match) {
+    const candidates=await env.DB.prepare(
+      "SELECT category FROM incidents WHERE state_code='NH' AND status='published' " +
+      "AND created_at>=? AND created_at<? GROUP BY category HAVING COUNT(*)>=2 LIMIT 1"
+    ).bind(start,end).first();
+    return json({ready:true,pair:null,
+      message:candidates ?
+        "You've judged all available same-category matchups this week. New cases will create new matchups." :
+        "Head-to-head opens when at least two cases in the same category are submitted this week. A Funny / Unexpected case won't be matched against a different category."});
   }
-  if(!best)return json({ready:true,pair:null,
-    message:entries.length<2?"More published cases are needed for battles.":"You have judged every available pairing."});
-  const [left,right]=await attachImages(best,env);
+  const rows=await env.DB.prepare(
+    "SELECT id,title,description,category,location_label FROM incidents " +
+    "WHERE id IN (?,?) AND state_code='NH' AND status='published' AND category=?"
+  ).bind(match.left_id,match.right_id,match.category).all();
+  if((rows.results||[]).length!==2)
+    return json({ready:true,pair:null,message:"The matchup just changed. Try another."});
+  const ordered=[match.left_id,match.right_id].map(id=>rows.results.find(row=>row.id===id));
+  const [left,right]=await attachImages(ordered,env);
   const summarize=row=>({id:row.id,title:row.title,category:row.category,
     description:(row.description||"").slice(0,350),
     location_label:row.location_label,photo:row.photos?.[0]?.url||null});
   return json({ready:true,pair:[summarize(left),summarize(right)],
-    message:"Choose which driving incident is worse. One decision per browser per pairing."});
+    category:match.category,competition:match.category==="funny_unexpected"?"funniest":"worst",
+    message:match.category==="funny_unexpected" ?
+      "Which funny case makes you laugh more? Your choice adds a weekly Funniest point." :
+      "Which driving case is worse? Your choice adds a weekly Worst point."});
 }
 async function castBattleVote(request,env) {
-  if (!(await gameSchemaReady(env))) return json({error:"Battles are not active yet"},503);
-  if (!isCommunityActionAllowed(request)) return json({error:"Invalid request origin"},403);
+  if (!(await gameSchemaReady(env)) || !(await featureSchemaReady(env)))
+    return json({error:"Battles are not active yet"},503);
+  if(!isCommunityActionAllowed(request))return json({error:"Invalid request origin"},403);
   const voter=await voterHash(request);
-  if(!voter) return json({error:"Refresh the page first"},428);
+  if(!voter)return json({error:"Refresh the page first"},428);
   const body=await parseBody(request);
-  if(body.error) return json({error:body.error},body.status);
+  if(body.error)return json({error:body.error},body.status);
   const {left_id,right_id,winner_id}=body.value;
-  if(!idPattern.test(left_id||"") || !idPattern.test(right_id||"") ||
-     left_id===right_id || (winner_id!==left_id && winner_id!==right_id))
+  if(!idPattern.test(left_id||"")||!idPattern.test(right_id||"")||
+     left_id===right_id||(winner_id!==left_id&&winner_id!==right_id))
     return json({error:"Invalid battle selection"},400);
   if(!(await limitJuryAction(request,env)))return json({error:"Too many actions. Try later."},429);
-  const eligible=await env.DB.prepare(
-    "SELECT COUNT(*) AS total FROM incidents WHERE id IN (?,?) AND status='published' AND state_code='NH'"
-  ).bind(left_id,right_id).first();
-  if(Number(eligible?.total||0)!==2)return json({error:"A battle contender is no longer available"},404);
+  const start=currentWeekStart(),end=nextEasternWeekStart();
+  const entries=await env.DB.prepare(
+    "SELECT id,category FROM incidents WHERE id IN (?,?) " +
+    "AND state_code='NH' AND status='published' AND created_at>=? AND created_at<?"
+  ).bind(left_id,right_id,start,end).all();
+  const cases=entries.results||[];
+  if(cases.length!==2)return json({error:"One or both cases are no longer eligible for this week's matchup"},409);
+  if(cases[0].category!==cases[1].category)
+    return json({error:"Head-to-head voting requires two incidents from the same category"},409);
   const [first,second]=[left_id,right_id].sort();
   const saved=await env.DB.prepare(
     "INSERT OR IGNORE INTO battle_votes(left_id,right_id,voter_key_hash,winner_id) VALUES(?,?,?,?)"
   ).bind(first,second,voter,winner_id).run();
-  if(Number(saved.meta?.changes||0)===0)return json({error:"This browser already judged that pairing"},409);
+  if(Number(saved.meta?.changes||0)===0)
+    return json({error:"This browser already judged that pairing"},409);
   const result=await env.DB.prepare(
-    "SELECT winner_id,COUNT(*) AS wins FROM battle_votes WHERE left_id=? AND right_id=? GROUP BY winner_id"
+    "SELECT winner_id,COUNT(*) AS wins FROM battle_votes " +
+    "WHERE left_id=? AND right_id=? GROUP BY winner_id"
   ).bind(first,second).all();
-  return json({ok:true,winner_id,results:(result.results||[]).map(row=>
-    ({id:row.winner_id,votes:Number(row.wins||0)}))});
+  return json({ok:true,winner_id,category:cases[0].category,
+    competition:cases[0].category==="funny_unexpected"?"funniest":"worst",
+    results:(result.results||[]).map(row=>
+      ({id:row.winner_id,votes:Number(row.wins||0)}))});
 }
 
 async function juryPrediction(request,env) {
