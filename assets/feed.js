@@ -44,6 +44,9 @@
         element("span", "", `✓ Give a pass: ${Number(item.pass_votes) || 0}`)
       );
       card.append(votes);
+      const reportLink = element("a", "feed-report", "Report / request removal");
+      reportLink.href = "/nh/report/?id=" + encodeURIComponent(item.id);
+      card.append(reportLink);
       feed.append(card);
     }
   }
