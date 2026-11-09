@@ -17,7 +17,8 @@
       "/api/*",
       "/media/*",
       "/admin",
-      "/admin/*"
+      "/admin/*",
+      "/nh/"
     ]
   },
   "d1_databases": [
