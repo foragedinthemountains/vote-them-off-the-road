@@ -640,6 +640,8 @@ async function juryCheckin(request,env) {
   const result=await env.DB.prepare(
     "INSERT OR IGNORE INTO jury_daily_checkins(voter_key_hash,eastern_day) VALUES(?,?)"
   ).bind(voter,day).run();
+  if(Number(result.meta?.changes||0)>0)
+    await rewardJuryAction(env,voter,{type:"caught_up"});
   return json({ok:true,day,already_checked_in:Number(result.meta?.changes||0)===0});
 }
 
@@ -760,6 +762,7 @@ async function castBattleVote(request,env) {
   ).bind(first,second,voter,winner_id).run();
   if(Number(saved.meta?.changes||0)===0)
     return json({error:"This browser already judged that pairing"},409);
+  await rewardJuryAction(env,voter,{type:"battle",pair:first+"|"+second});
   const result=await env.DB.prepare(
     "SELECT winner_id,COUNT(*) AS wins FROM battle_votes " +
     "WHERE left_id=? AND right_id=? GROUP BY winner_id"
@@ -1008,6 +1011,7 @@ async function voteIncident(id, request, env) {
       COUNT(CASE WHEN choice = 'funny' THEN 1 END) AS funny_votes
     FROM ${vt} WHERE incident_id = ?
   `).bind(id).first();
+  await rewardJuryAction(env,hash,{type:"vote",incidentId:id});
   return json({
     ok: true, id, my_vote: choice,
     off_votes: Number(counts?.off_votes || 0),
@@ -1720,6 +1724,8 @@ export default {
         return weeklyBoard(env,offset);
       }
       if (pathname === "/api/my-stats" && request.method === "GET") return withVoterCookie(request, await myParticipation(request, env));
+      if (pathname === "/api/jury/xp" && request.method === "GET")
+        return withVoterCookie(request,await juryXPOverview(request,env));
       if (pathname === "/api/jury/checkin" && request.method === "POST")
         return juryCheckin(request,env);
       if (pathname === "/api/jury/streak-save" && request.method === "POST")
