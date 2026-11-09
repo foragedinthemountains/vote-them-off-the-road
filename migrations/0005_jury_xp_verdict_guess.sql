@@ -4,7 +4,7 @@
 CREATE TABLE IF NOT EXISTS jury_xp_events (
   voter_key_hash TEXT NOT NULL,
   event_key TEXT NOT NULL,
-  kind TEXT NOT NULL CHECK(kind IN ('vote','jury_duty','battle','verdict_guess','verdict_correct','caught_up','return')),
+  kind TEXT NOT NULL CHECK(kind IN ('vote','jury_duty','battle','verdict_guess','verdict_correct','caught_up','return','weekly_prediction')),
   xp INTEGER NOT NULL CHECK(xp >= 0 AND xp <= 50),
   eastern_day TEXT NOT NULL,
   created_at INTEGER NOT NULL DEFAULT (unixepoch()),
