@@ -80,7 +80,7 @@ The goal is entertainment and community voting, not driver identification. Ordin
 - POST `/api/incidents/:id/vote` accepts `{"choice":"off"}` or `{"choice":"pass"}` for published incidents only.
 - GET `/api/incidents?state=NH` sets a secure, HttpOnly, SameSite=Lax cookie `vtor_voter` if one is absent. A random browser ID identifies the browser for the voting feature; D1 stores only its SHA-256 hash.
 - Returning visitors see their selected vote via the `my_vote` field. D1 uses an upsert on `(incident_id, voter_key_hash)` so changing a vote replaces the old choice, not adding a second vote.
-- `VOTE_RATE_LIMITER` (namespace 2002) is 30 requests/minute per network IP and is approximate across Cloudflare locations. This is *not* verified one-person-one-vote: clearing cookies/new browsers can produce extra votes. Add stronger abuse protection or accounts before expecting robust public rankings.
+- `VOTE_RATE_LIMITER` (namespace 2002) is 30 requests/minute per network IP and is approximate across Cloudflare locations. This enforces one stored vote per visitor identifier, not verified one-person-one-vote. Add stronger abuse protection or accounts before expecting robust public rankings.
 - Requests must carry the same-site origin and valid JSON. A hidden/removed incident cannot be voted on.
 - To inspect counts in D1: `SELECT incident_id, choice, COUNT(*) AS total FROM votes GROUP BY incident_id, choice ORDER BY incident_id, choice;`
 - A report or removal request creates a `reports` row with `status='open'`; the incident stays public until an operator hides/removes it. Check the queue daily until admin alerts and one-click hide are built.
