@@ -235,7 +235,7 @@ async function settleWeeklyPredictionXP(env,voter){
   for(const row of wins.results||[]){
     const week=Number(row.week_start);
     await awardJuryXP(env,voter,"weekly-prediction:"+week,
-      "weekly_prediction",30,easternDateKey(new Date(week*1000)));
+      "weekly_prediction",30,easternDateKey());
   }
 }
 async function juryXPOverview(request,env){
@@ -249,7 +249,7 @@ async function juryXPOverview(request,env){
     console.error("Weekly prediction XP settlement error",error?.message||"unknown");
   }
   const vt=await activeVoteTable(env);
-  const [total,events,votes,available,eligibleGuess,battles]=await Promise.all([
+  const [total,events,votes,available,eligibleGuess,battles,duelReady]=await Promise.all([
     env.DB.prepare("SELECT COALESCE(SUM(xp),0) AS xp FROM jury_xp_events WHERE voter_key_hash=?")
       .bind(voter).first(),
     env.DB.prepare("SELECT kind,COUNT(*) AS n,COALESCE(SUM(xp),0) AS xp FROM jury_xp_events "+
@@ -271,7 +271,19 @@ async function juryXPOverview(request,env){
     await gameSchemaReady(env) ? env.DB.prepare(
       "SELECT COUNT(*) AS n FROM battle_votes WHERE voter_key_hash=? "+
       "AND created_at>=? AND created_at<?"
-    ).bind(voter,day.start,day.nextReset).first() : Promise.resolve({n:0})
+    ).bind(voter,day.start,day.nextReset).first() : Promise.resolve({n:0}),
+    await gameSchemaReady(env) ? env.DB.prepare(
+      "SELECT 1 FROM incidents a JOIN incidents b "+
+      "ON a.category=b.category AND a.id<b.id "+
+      "WHERE a.state_code='NH' AND b.state_code='NH' "+
+      "AND a.status='published' AND b.status='published' "+
+      "AND a.created_at>=? AND a.created_at<? "+
+      "AND b.created_at>=? AND b.created_at<? "+
+      "AND NOT EXISTS (SELECT 1 FROM battle_votes v "+
+      "WHERE v.left_id=a.id AND v.right_id=b.id AND v.voter_key_hash=?) "+
+      "LIMIT 1"
+    ).bind(currentWeekStart(),nextEasternWeekStart(),
+      currentWeekStart(),nextEasternWeekStart(),voter).first() : Promise.resolve(null)
   ]);
   const xp=Number(total?.xp||0);
   const rank=[...XP_LEVELS].reverse().find(r=>xp>=r.xp)||XP_LEVELS[0];
@@ -298,7 +310,7 @@ async function juryXPOverview(request,env){
       reward_xp:5,complete:Number(activity.verdict_guess?.count||0)>0},
     {id:"duel",title:"Judge a head-to-head",description:"Pick between two cases in the same category.",
       progress:Math.min(1,Number(activity.battle?.count||0)),
-      target:1,available:Boolean(battles?.n)||Number(activity.battle?.count||0)>0,
+      target:1,available:Boolean(duelReady)||Number(activity.battle?.count||0)>0,
       reward_xp:5,complete:Number(activity.battle?.count||0)>0}
   ];
   // A duel can be unavailable despite the presence of prior actions; the
