@@ -20,8 +20,14 @@
       const votes = Number(data.votes || 0);
       const next = data.next_badge_at === null ? "Top badge unlocked" :
         Math.max(0, Number(data.next_badge_at) - votes) + " to next badge";
+      const dailyVotes = Number(data.today_votes || 0);
+      const dailyTarget = Number(data.daily_target || 3);
+      const duty = dailyVotes >= dailyTarget ? "✓ Today's jury duty complete" :
+        Math.max(0, dailyTarget - dailyVotes) + " more first-time votes for today's jury duty";
+      const streak = Number(data.streak_days || 0);
       juryProgress.replaceChildren(el("strong", "", "⚖ " + data.badge),
-        el("span", "", votes + " incidents voted on · " + next));
+        el("span", "", votes + " incidents voted on · " + next),
+        el("span", "jury-duty", "🔥 " + streak + "-day streak · " + duty));
     } catch {
       juryProgress.replaceChildren(el("span", "", "Jury progress will appear after your first vote."));
     }
