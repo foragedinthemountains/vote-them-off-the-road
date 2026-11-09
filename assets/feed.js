@@ -4,6 +4,14 @@
   const status = document.querySelector("#feed-status");
   const buttons = [...document.querySelectorAll("[data-feed-sort]")];
   let currentSort = "newest";
+  let currentCategory = "";
+  const categorySelect = document.querySelector("#feed-category");
+  const categoryLabels = {
+    bad_parking: "Parking fails", cutting_off: "Cut-offs & close calls",
+    tailgating: "Tailgating", distracted: "Distracted driving",
+    signal: "Signals & intersections", speeding: "Speeding",
+    road_rage: "Road rage", roadside: "Roadside oddities", other: "Other"
+  };
   if (!feed || !status) return;
 
   function element(tag, className, text) {
@@ -36,7 +44,9 @@
       const date = Number.isFinite(Number(item.created_at))
         ? new Date(Number(item.created_at) * 1000).toLocaleDateString()
         : "";
-      meta.textContent = date ? `${location} · ${date}` : location;
+      meta.textContent = (date ? `${location} · ${date}` : location) +
+        (item.category ? " · " + (categoryLabels[item.category] || "Other") : "");
+      card.id = "incident-" + item.id;
 
       card.append(meta, element("h3", "", item.title), element("p", "feed-description", item.description || ""));
       if (Array.isArray(item.photos) && item.photos.length) {
@@ -96,6 +106,7 @@
           item.my_vote = result.my_vote;
           updateVoteButtons();
           voteFeedback.textContent = "Vote counted! You can change it any time.";
+          window.dispatchEvent(new Event("vtor:vote"));
         } catch (error) {
           voteFeedback.textContent = error.message || "Could not save your vote. Try again.";
         } finally {
@@ -110,7 +121,24 @@
       card.append(voteActions, voteFeedback, voteHint);
       const reportLink = element("a", "feed-report", "Report / request removal");
       reportLink.href = "/nh/report/?id=" + encodeURIComponent(item.id);
-      card.append(reportLink);
+      const share = element("button", "feed-share", "↗ Share this moment");
+      share.type = "button";
+      share.addEventListener("click", async () => {
+        const shareUrl = location.origin + "/nh/?incident=" + encodeURIComponent(item.id) + "#incidents";
+        try {
+          if (navigator.share) {
+            await navigator.share({ title: item.title, url: shareUrl });
+          } else {
+            await navigator.clipboard.writeText(shareUrl);
+            share.textContent = "✓ Link copied";
+          }
+        } catch (error) {
+          if (error?.name !== "AbortError") {
+            share.textContent = "Share link: " + shareUrl;
+          }
+        }
+      });
+      card.append(share, reportLink);
       feed.append(card);
     }
   }
@@ -122,14 +150,29 @@
     }
     status.textContent = "Loading incidents…";
     try {
-      const response = await fetch(`/api/incidents?state=NH&sort=${encodeURIComponent(sort)}`, {
+      const response = await fetch(`/api/incidents?state=NH&sort=${encodeURIComponent(sort)}&category=${encodeURIComponent(currentCategory)}`, {
         headers: { Accept: "application/json" },
         cache: "no-store",
       });
       if (!response.ok) throw new Error("Feed request failed");
       const data = await response.json();
       if (!Array.isArray(data.incidents)) throw new Error("Unexpected feed response");
-      render(data.incidents);
+      const incidents = data.incidents;
+      const sharedId = new URLSearchParams(location.search).get("incident");
+      if (sharedId && /^[a-zA-Z0-9_-]{6,80}$/.test(sharedId) &&
+          !incidents.some(i => i.id === sharedId)) {
+        const single = await fetch("/api/incidents/" + encodeURIComponent(sharedId),
+          { credentials: "same-origin", cache: "no-store" });
+        if (single.ok) {
+          const row = await single.json();
+          if (row?.incident) incidents.unshift(row.incident);
+        }
+      }
+      render(incidents);
+      if (sharedId) {
+        const target = document.getElementById("incident-" + sharedId);
+        if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
     } catch (error) {
       feed.replaceChildren();
       status.textContent = "The incident feed couldn't load right now. Try refreshing this page.";
@@ -139,5 +182,9 @@
   for (const button of buttons) {
     button.addEventListener("click", () => load(button.dataset.feedSort));
   }
+  if (categorySelect) categorySelect.addEventListener("change", () => {
+    currentCategory = categorySelect.value;
+    load(currentSort);
+  });
   load("newest");
 })();
