@@ -1416,6 +1416,30 @@ async function claimGuestIncident(request,env,id){
     return json({error:"This private management link is invalid or already claimed"},409);
   return json({ok:true,message:"This incident now belongs to your account. The old guest management link is disabled."});
 }
+async function accountXP(request,env){
+  const auth=await publicAccountIdentity(request,env);
+  if(auth.error)return auth.error;
+  if(!(await xpSchemaReady(env)))
+    return json({ready:false,message:"Jury XP becomes available after migration 0005."});
+  // One event key contributes once even if the owner links two browsers
+  // that each previously earned the same case or challenge XP.
+  const [total,browsers]=await Promise.all([
+    env.DB.prepare(
+      "SELECT COALESCE(SUM(xp),0) AS xp FROM ("+
+      "SELECT MAX(e.xp) AS xp FROM account_voter_links l "+
+      "JOIN jury_xp_events e ON e.voter_key_hash=l.voter_key_hash "+
+      "WHERE l.owner_user_id=? GROUP BY e.event_key)"
+    ).bind(auth.identity.userId).first(),
+    env.DB.prepare(
+      "SELECT COUNT(*) AS n FROM account_voter_links WHERE owner_user_id=?"
+    ).bind(auth.identity.userId).first()
+  ]);
+  const xp=Number(total?.xp||0);
+  const rank=[...XP_LEVELS].reverse().find(level=>xp>=level.xp)||XP_LEVELS[0];
+  const next=XP_LEVELS.find(level=>xp<level.xp)||null;
+  return json({ready:true,xp,rank,next_rank:next,
+    linked_browsers:Number(browsers?.n||0)});
+}
 async function accountMyIncidents(request,env){
   const auth=await publicAccountIdentity(request,env);
   if(auth.error)return auth.error;
@@ -2025,6 +2049,8 @@ export default {
       }
       if(pathname==="/api/account/me" && request.method==="GET")
         return accountMe(request,env);
+      if(pathname==="/api/account/xp" && request.method==="GET")
+        return accountXP(request,env);
       if(pathname==="/api/account/incidents" && request.method==="GET")
         return accountMyIncidents(request,env);
       if(pathname==="/api/account/link-browser" && request.method==="POST")
