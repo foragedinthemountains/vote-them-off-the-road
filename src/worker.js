@@ -1,3 +1,5 @@
+import {ownershipSchemaReady,publicAccountsReady,getPublicAccountUser,
+  hashManagementToken,createManagementToken} from "./ownership.js";
 // Full-stack Cloudflare Worker: public reading, Turnstile-protected text posts and reports.
 // Submission endpoints fail closed until Turnstile secrets and a rate limiter are configured.
 const cacheHeaders = { "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" };
@@ -1268,7 +1270,7 @@ async function prepareWrite(request, env, action) {
     }
     body = {
       title: data.get("title"), location_label: data.get("location_label"),
-      description: data.get("description"), turnstile_token: data.get("turnstile_token"), photos
+      description: data.get("description"), category: data.get("category"), turnstile_token: data.get("turnstile_token"), photos
     };
   } else {
     const parsed = await parseBody(request);
@@ -1307,6 +1309,15 @@ async function createIncident(request, env) {
     const head = new Uint8Array(await file.slice(0, 12).arrayBuffer());
     if (!imageSignatureIsValid(head, file.type)) return json({ error: "Invalid photo file" }, 400);
   }
+  const ownershipOn=await ownershipSchemaReady(env);
+  let accountUser=null;
+  if(request.headers.has("Authorization")){
+    try{accountUser=await getPublicAccountUser(request,env);}
+    catch{return json({error:"Your account session needs to be refreshed. Please sign in again."},401);}
+    if(!accountUser)return json({error:"Sign in again or submit as guest."},401);
+  }
+  const managementToken=ownershipOn&&!accountUser?createManagementToken():null;
+  const managementHash=managementToken?await hashManagementToken(managementToken):null;
   const id = crypto.randomUUID();
   // Keep the incident hidden until every photo and database reference is safely stored.
   const initialStatus = photos.length ? "hidden" : "published";
@@ -1321,7 +1332,24 @@ async function createIncident(request, env) {
       VALUES (?, 'NH', ?, ?, ?, ?)
     `).bind(id, location || null, title, description, initialStatus).run();
   }
-  if (!photos.length) return json({ ok: true, id, message: "Your driving story is on the board." }, 201);
+  if(ownershipOn){
+    try{
+      await env.DB.prepare(
+        "INSERT INTO incident_ownership "+
+        "(incident_id,owner_user_id,owner_token_hash) VALUES(?,?,?)"
+      ).bind(id,accountUser?.userId||null,managementHash).run();
+    }catch(error){
+      console.error("Could not assign new incident ownership",error?.message||"error");
+      await env.DB.prepare("DELETE FROM incidents WHERE id=?").bind(id).run();
+      return json({error:"Could not initialize ownership. Please retry."},503);
+    }
+  }
+  const ownershipReply=ownershipOn?
+    {owner_type:accountUser?"account":"guest",management_token:managementToken}:
+    {owner_type:"unavailable"};
+  if (!photos.length) return json({
+    ok:true,id,...ownershipReply,message:"Your driving story is on the board."
+  },201);
   const uploadedKeys = [];
   try {
     for (let index = 0; index < photos.length; index++) {
@@ -1341,7 +1369,7 @@ async function createIncident(request, env) {
     }
     await env.DB.prepare("UPDATE incidents SET status = 'published', updated_at = unixepoch() WHERE id = ?")
       .bind(id).run();
-    return json({ ok: true, id, photos: photos.length, message: "Your photo story is on the board." }, 201);
+    return json({ok:true,id,photos:photos.length,...ownershipReply,message:"Your photo story is on the board."},201);
   } catch (error) {
     console.error("Photo submission failed", error);
     // Best-effort rollback to avoid leaving visible partial incidents or orphaned photos.
