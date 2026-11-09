@@ -28,3 +28,14 @@
 @media(max-width:650px){.admin-stats{grid-template-columns:1fr 1fr}.admin-actions button{flex:1}.admin-hero .btn{width:100%}}
 
 .admin-actions .action-delete{background:#ae2626;color:#fff;border-color:#7c1010}
+
+/* Phase 3: urgent moderation, report filters, and aggregate trends */
+.admin-report-filters{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:16px}
+.admin-report-filters select{font:inherit;font-weight:800;font-size:13px;border:2px solid var(--ink);background:#fffefa;padding:10px 14px;border-radius:9px;max-width:min(100%,300px)}
+.admin-priority{border:3px solid #b14230;box-shadow:4px 4px 0 #b14230}
+.admin-priority-label{font-size:12px;font-weight:900;letter-spacing:.06em;color:#9f2525;background:#ffe2dc;padding:10px 12px;border-radius:8px;margin:0 0 14px}
+.admin-analytics{background:#fffefa;border:1px solid var(--line);padding:22px;border-radius:16px;margin:0 0 50px}
+.admin-analytics h3{font-size:30px}.admin-analytics h4{font-size:24px;margin:0 0 10px}
+.admin-analytics-columns{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:25px}
+.admin-analytics-column p{font-size:13px;font-weight:700;margin:6px 0;color:#4a5a58}
+@media(max-width:650px){.admin-report-filters select{flex:1;max-width:100%}}
