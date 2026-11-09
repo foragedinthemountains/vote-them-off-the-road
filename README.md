@@ -221,3 +221,29 @@ Acceptance checks:
 4. Open a public `/nh/?incident=<id>#incidents` shared URL in a browser that has already voted on it. The specific case should be visible.
 5. Hide the featured incident in admin and reload. It must not be returned by the featured endpoint or visible in public feeds.
 6. Before migrations 0002 and 0003 are applied, basic new/unvoted filtering, pagination, and featured cases should still function because they use only original D1 tables.
+
+## Phase 4D: That's Just Funny reactions and Funniest Moment of the Week
+
+**Activate with one non-destructive migration:** `migrations/0004_funniest_reactions.sql` in Cloudflare D1 `votethemofftheroad-prod`. Run after migrations 0002 and 0003. The migration creates `votes_v4` with allowed choices `off`, `pass`, `funny`, copies all existing original votes and their timestamps via INSERT OR IGNORE, indexes the new table, creates `weekly_funny_awards`, and inserts a final readiness marker in `humor_migration_complete`. **The old `votes` table is not dropped or changed.**
+
+The Worker uses the original `votes` table until `humor_migration_complete` contains `id=1` and the new tables exist. Afterward, *all site voting, admin vote counts, daily jury duty, streak calculation and weekly competitions* use `votes_v4`. After migration, use `votes_v4` for checking current totals: `SELECT choice, COUNT(*) FROM votes_v4 GROUP BY choice;`. The original `votes` remains a read-only legacy snapshot. This switch is safe for existing data; during a migration, keep an eye on concurrent writes in the brief activation window.
+
+- One mutually exclusive reaction per browser/incident, with the ability to change from Off or Pass to Funny or vice versa; no credit for repeated votes on the same incident.
+- New submission category: `funny_unexpected` ("Funny / Unexpected"). Existing incidents stay in their original categories until the protected admin category selector changes them.
+- `GET /api/config` and `GET /api/incidents` expose `funny_enabled`; browser hides the third button until migration activates.
+- `GET /api/weekly-funniest?offset=N` (N=0..12) shows the top three published cases first submitted in that Eastern calendar week, ranked by Funny reactions **across all categories**. An official award requires at least 5 total reactions and a **majority** to be Funny (funny > off+pass). Other cards remain provisional. Archived awards use snapshot counts.
+- Explicitly funny category cases are excluded from the "Worst of the Week" competition. Other categories can still be nominated as funny when voters react that way.
+- The Monday Eastern scheduled job archives the top three qualifying Funny-majority cases into `weekly_funny_awards` alongside regular `weekly_awards` and `weekly_snapshots`. Hidden/removed cases disappear from public leaderboards.
+- The "Funniest Moment of the Week" panel appears inside `/nh/#weekly`, follows the same past-week selector, and offers voting links, a Facebook share, and the existing branded winner graphic.
+- `/admin/` now includes each incident's Funny total and a **Save category** dropdown. This can recategorize the blue heron story without reposting it.
+- Casual Funny reactions are not evidence of a traffic offense, do not trigger content removal, and do not earn extra points beyond the normal one-reaction-per-case Jury Duty rule.
+
+**After applying 0004**, verify these console queries:
+
+```sql
+SELECT (SELECT COUNT(*) FROM votes) AS original_votes,
+       (SELECT COUNT(*) FROM votes_v4) AS new_reactions;
+SELECT id, completed_at FROM humor_migration_complete;
+```
+
+The new count should initially be at least the original count; after voting resumes, only `votes_v4` is updated. Wait up to 30 seconds for the Worker's schema cache to detect the readiness marker, then refresh `/nh/` and check for the third reaction and new weekly panel.
