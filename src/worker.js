@@ -334,10 +334,207 @@ async function createReport(id, request, env) {
   return json({ ok: true, message: "Report received and pending review. The incident stays visible unless it is hidden or removed." }, 201);
 }
 
+
+/* Private admin API. Both Cloudflare Access and Worker-side signed JWT validation
+   must succeed. No admin credentials or user report details are exposed publicly. */
+let cachedAccessKeys = { team: "", expiresAt: 0, keys: [] };
+
+function base64UrlBytes(encoded) {
+  if (typeof encoded !== "string" || !/^[a-zA-Z0-9_-]+$/.test(encoded)) {
+    throw new Error("Bad token encoding");
+  }
+  const base64 = encoded.replace(/-/g, "+").replace(/_/g, "/");
+  const binary = atob(base64 + "=".repeat((4 - base64.length % 4) % 4));
+  return Uint8Array.from(binary, ch => ch.charCodeAt(0));
+}
+
+function tokenJson(encoded) {
+  return JSON.parse(new TextDecoder().decode(base64UrlBytes(encoded)));
+}
+
+async function getAccessKeys(team, refresh = false) {
+  if (!refresh && cachedAccessKeys.team === team && cachedAccessKeys.expiresAt > Date.now()) {
+    return cachedAccessKeys.keys;
+  }
+  const res = await fetch("https://" + team + "/cdn-cgi/access/certs", {
+    redirect: "error", signal: AbortSignal.timeout(5000)
+  });
+  if (!res.ok) throw new Error("Could not retrieve Access signing keys");
+  const certs = await res.json();
+  if (!Array.isArray(certs.keys)) throw new Error("Invalid Access signing keys");
+  const keys = certs.keys.filter(key => key.kty === "RSA" && key.n && key.e && key.kid);
+  if (!keys.length) throw new Error("No valid Access keys");
+  cachedAccessKeys = { team, keys, expiresAt: Date.now() + 300000 };
+  return keys;
+}
+
+async function authorizeAdmin(request, env) {
+  const team = String(env.ADMIN_ACCESS_TEAM || "").trim().toLowerCase();
+  const aud = String(env.ADMIN_ACCESS_AUD || "").trim();
+  const adminEmail = String(env.ADMIN_EMAIL || "").trim().toLowerCase();
+  if (!/^[a-z0-9-]{1,64}\.cloudflareaccess\.com$/.test(team) ||
+      !aud || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(adminEmail)) return null;
+  const token = request.headers.get("Cf-Access-Jwt-Assertion") || "";
+  if (token.length > 12000) return null;
+  const parts = token.split(".");
+  if (parts.length !== 3) return null;
+  try {
+    const header = tokenJson(parts[0]);
+    const payload = tokenJson(parts[1]);
+    if (header.alg !== "RS256" || typeof header.kid !== "string" ||
+        typeof payload.email !== "string" || payload.email.toLowerCase() !== adminEmail) return null;
+    const now = Math.floor(Date.now() / 1000);
+    if (!Number.isSafeInteger(payload.exp) || payload.exp <= now ||
+        (payload.nbf !== undefined && (typeof payload.nbf !== "number" || payload.nbf > now + 30)) ||
+        (payload.iat !== undefined && (typeof payload.iat !== "number" || payload.iat > now + 30)) ||
+        payload.iss !== "https://" + team ||
+        !(Array.isArray(payload.aud) ? payload.aud.includes(aud) : payload.aud === aud)) {
+      return null;
+    }
+    let keys = await getAccessKeys(team);
+    let signingKey = keys.find(key => key.kid === header.kid);
+    if (!signingKey) {
+      keys = await getAccessKeys(team, true);
+      signingKey = keys.find(key => key.kid === header.kid);
+    }
+    if (!signingKey) return null;
+    const key = await crypto.subtle.importKey("jwk",
+      { kty: "RSA", n: signingKey.n, e: signingKey.e, alg: "RS256", ext: true },
+      { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["verify"]);
+    const valid = await crypto.subtle.verify(
+      "RSASSA-PKCS1-v1_5", key, base64UrlBytes(parts[2]),
+      new TextEncoder().encode(parts[0] + "." + parts[1]));
+    return valid ? { email: adminEmail } : null;
+  } catch (error) {
+    console.error("Admin authentication verification failed", error?.message || "error");
+    return null;
+  }
+}
+
+function isAdminMutationAllowed(request) {
+  return request.headers.get("Origin") === SITE_ORIGIN &&
+    (!request.headers.get("Sec-Fetch-Site") ||
+      request.headers.get("Sec-Fetch-Site") === "same-origin");
+}
+
+function adminId(value) {
+  return idPattern.test(value || "");
+}
+
+async function adminApi(request, env, path, identity) {
+  if (path === "/admin/api/me" && request.method === "GET") {
+    return json({ ok: true, email: identity.email });
+  }
+  if (path === "/admin/api/reports" && request.method === "GET") {
+    const rows = await env.DB.prepare(`
+      SELECT r.id, r.incident_id, r.reason, r.details, r.contact_email,
+        r.status, r.created_at, r.resolved_at,
+        i.title AS incident_title, i.status AS incident_status
+      FROM reports r
+      LEFT JOIN incidents i ON i.id = r.incident_id
+      ORDER BY CASE r.status WHEN 'open' THEN 0 WHEN 'reviewing' THEN 1 ELSE 2 END,
+        r.created_at DESC LIMIT 100
+    `).all();
+    return json({ reports: rows.results || [] });
+  }
+  if (path === "/admin/api/incidents" && request.method === "GET") {
+    const rows = await env.DB.prepare(`
+      SELECT i.id, i.state_code, i.location_label, i.title, i.status,
+        i.created_at, i.updated_at,
+        (SELECT COUNT(*) FROM votes v WHERE v.incident_id = i.id AND v.choice = 'off') AS off_votes,
+        (SELECT COUNT(*) FROM votes v WHERE v.incident_id = i.id AND v.choice = 'pass') AS pass_votes,
+        (SELECT COUNT(*) FROM reports r WHERE r.incident_id = i.id AND r.status IN ('open', 'reviewing')) AS pending_reports
+      FROM incidents i ORDER BY i.created_at DESC LIMIT 100
+    `).all();
+    return json({ incidents: rows.results || [] });
+  }
+  if (request.method !== "PATCH") return json({ error: "Not found" }, 404);
+  if (!isAdminMutationAllowed(request)) return json({ error: "Invalid request origin" }, 403);
+  const body = await parseBody(request);
+  if (body.error) return json({ error: body.error }, body.status);
+  const incidentMatch = /^\/admin\/api\/incidents\/([A-Za-z0-9_-]{6,80})$/.exec(path);
+  if (incidentMatch) {
+    const id = incidentMatch[1];
+    const state = body.value.status;
+    if (!["published", "hidden", "removed"].includes(state)) {
+      return json({ error: "Invalid incident status" }, 400);
+    }
+    const existing = await env.DB.prepare("SELECT id FROM incidents WHERE id = ?").bind(id).first();
+    if (!existing) return json({ error: "Incident not found" }, 404);
+    await env.DB.prepare(
+      "UPDATE incidents SET status = ?, updated_at = unixepoch() WHERE id = ?"
+    ).bind(state, id).run();
+    console.log("Admin incident update", { email: identity.email, id, status: state });
+    return json({ ok: true, id, status: state });
+  }
+  const reportMatch = /^\/admin\/api\/reports\/([A-Za-z0-9_-]{6,80})$/.exec(path);
+  if (reportMatch) {
+    const id = reportMatch[1];
+    const action = body.value.action;
+    if (!["reviewing", "resolve", "dismiss", "reopen", "hide_and_resolve"].includes(action)) {
+      return json({ error: "Invalid report action" }, 400);
+    }
+    const existing = await env.DB.prepare(
+      "SELECT incident_id FROM reports WHERE id = ?"
+    ).bind(id).first();
+    if (!existing) return json({ error: "Report not found" }, 404);
+    if (action === "hide_and_resolve") {
+      // D1 batches execute statements in order as a transaction.
+      await env.DB.batch([
+        env.DB.prepare("UPDATE incidents SET status='hidden', updated_at=unixepoch() WHERE id=?")
+          .bind(existing.incident_id),
+        env.DB.prepare("UPDATE reports SET status='resolved', resolved_at=unixepoch() WHERE id=?").bind(id)
+      ]);
+    } else {
+      const status = action === "resolve" ? "resolved" :
+        action === "dismiss" ? "dismissed" :
+        action === "reopen" ? "open" : "reviewing";
+      await env.DB.prepare(
+        "UPDATE reports SET status=?, resolved_at=? WHERE id=?"
+      ).bind(status, status === "resolved" || status === "dismissed" ? Math.floor(Date.now()/1000) : null, id).run();
+    }
+    console.log("Admin report update", { email: identity.email, id, action });
+    return json({ ok: true, id, action });
+  }
+  return json({ error: "Not found" }, 404);
+}
+
+async function adminRequest(request, env, pathname) {
+  const configured = Boolean(env.ADMIN_ACCESS_TEAM && env.ADMIN_ACCESS_AUD && env.ADMIN_EMAIL);
+  if (!configured) {
+    return new Response("Admin dashboard is not configured yet.", {
+      status: 503, headers: { "Cache-Control": "no-store", "X-Robots-Tag": "noindex" }
+    });
+  }
+  const identity = await authorizeAdmin(request, env);
+  if (!identity) {
+    return new Response("Admin access denied. Check Cloudflare Access and your application settings.", {
+      status: 403, headers: { "Cache-Control": "no-store", "X-Robots-Tag": "noindex" }
+    });
+  }
+  if (pathname.startsWith("/admin/api/")) {
+    try { return await adminApi(request, env, pathname, identity); }
+    catch (error) {
+      console.error("Admin API failed", error);
+      return json({ error: "Admin request failed" }, 503);
+    }
+  }
+  if (request.method !== "GET" && request.method !== "HEAD") {
+    return new Response("Method not allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
+  }
+  const response = await env.ASSETS.fetch(request);
+  const headers = new Headers(response.headers);
+  headers.set("Cache-Control", "private, no-store");
+  headers.set("X-Robots-Tag", "noindex, nofollow");
+  return new Response(response.body, { status: response.status, headers });
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     const { pathname } = url;
+    if (pathname === "/admin") return Response.redirect(SITE_ORIGIN + "/admin/", 302);
+    if (pathname.startsWith("/admin/")) return adminRequest(request, env, pathname);
     if (pathname.startsWith("/media/")) {
       if (request.method !== "GET" && request.method !== "HEAD")
         return new Response("Method not allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
