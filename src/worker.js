@@ -53,19 +53,37 @@ function currentWeekStart() {
 }
 async function myParticipation(request, env) {
   const hash = await voterHash(request);
-  if (!hash) return json({ votes: 0, recent_votes: 0, badge: "New juror", next_badge_at: 3 });
-  const stats = await env.DB.prepare(`
-    SELECT COUNT(*) AS votes,
-      COUNT(CASE WHEN created_at >= unixepoch()-86400 THEN 1 END) AS recent_votes
-    FROM votes WHERE voter_key_hash=?
-  `).bind(hash).first();
+  const defaultStats = { votes: 0, recent_votes: 0, today_votes: 0, streak_days: 0,
+    daily_target: 3, badge: "New juror", next_badge_at: 3 };
+  if (!hash) return json(defaultStats);
+  const [stats, daysResult] = await Promise.all([
+    env.DB.prepare(`
+      SELECT COUNT(*) AS votes,
+        COUNT(CASE WHEN created_at >= unixepoch()-86400 THEN 1 END) AS recent_votes,
+        COUNT(CASE WHEN created_at >= ? THEN 1 END) AS today_votes
+      FROM votes WHERE voter_key_hash=?
+    `).bind(Math.floor(Date.now() / 86400000) * 86400, hash).first(),
+    env.DB.prepare(`
+      SELECT CAST(created_at / 86400 AS INTEGER) AS utc_day
+      FROM votes WHERE voter_key_hash=?
+      GROUP BY CAST(created_at / 86400 AS INTEGER)
+      ORDER BY utc_day DESC LIMIT 30
+    `).bind(hash).all()
+  ]);
   const votes = Number(stats?.votes || 0);
+  const days = new Set((daysResult.results || []).map(row => Number(row.utc_day)));
+  const today = Math.floor(Date.now() / 86400000);
+  let day = days.has(today) ? today : today - 1;
+  let streak = 0;
+  while (streak < 30 && days.has(day)) { streak++; day--; }
   const tiers = [{ min: 0, name: "New juror" }, { min: 3, name: "Regular juror" },
     { min: 10, name: "Road referee" }, { min: 25, name: "Veteran voter" },
     { min: 100, name: "Legendary juror" }];
   const badge = [...tiers].reverse().find(t => votes >= t.min).name;
   const next = tiers.find(t => t.min > votes);
   return json({ votes, recent_votes: Number(stats?.recent_votes || 0),
+    today_votes: Number(stats?.today_votes || 0),
+    streak_days: streak, daily_target: 3,
     badge, next_badge_at: next?.min || null });
 }
 async function weeklyBoard(env) {
