@@ -373,27 +373,28 @@ async function getAccessKeys(team, refresh = false) {
 }
 
 async function authorizeAdmin(request, env) {
+  const failed = code => ({ error: code });
   const team = String(env.ADMIN_ACCESS_TEAM || "").trim().toLowerCase();
   const aud = String(env.ADMIN_ACCESS_AUD || "").trim();
   const adminEmail = String(env.ADMIN_EMAIL || "").trim().toLowerCase();
   if (!/^[a-z0-9-]{1,64}\.cloudflareaccess\.com$/.test(team) ||
-      !aud || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(adminEmail)) return null;
+      !aud || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(adminEmail)) return failed("AUTH_CONFIG");
   const token = request.headers.get("Cf-Access-Jwt-Assertion") || "";
-  if (token.length > 12000) return null;
+  if (token.length > 12000) return failed("TOKEN_FORMAT");
   const parts = token.split(".");
-  if (parts.length !== 3) return null;
+  if (parts.length !== 3) return failed(token ? "TOKEN_FORMAT" : "TOKEN_MISSING");
   try {
     const header = tokenJson(parts[0]);
     const payload = tokenJson(parts[1]);
     if (header.alg !== "RS256" || typeof header.kid !== "string" ||
-        typeof payload.email !== "string" || payload.email.toLowerCase() !== adminEmail) return null;
+        typeof payload.email !== "string" || payload.email.toLowerCase() !== adminEmail) return failed("IDENTITY_MISMATCH");
     const now = Math.floor(Date.now() / 1000);
     if (!Number.isSafeInteger(payload.exp) || payload.exp <= now ||
         (payload.nbf !== undefined && (typeof payload.nbf !== "number" || payload.nbf > now + 30)) ||
         (payload.iat !== undefined && (typeof payload.iat !== "number" || payload.iat > now + 30)) ||
         payload.iss !== "https://" + team ||
         !(Array.isArray(payload.aud) ? payload.aud.includes(aud) : payload.aud === aud)) {
-      return null;
+      return failed("TOKEN_CLAIMS");
     }
     let keys = await getAccessKeys(team);
     let signingKey = keys.find(key => key.kid === header.kid);
@@ -401,17 +402,17 @@ async function authorizeAdmin(request, env) {
       keys = await getAccessKeys(team, true);
       signingKey = keys.find(key => key.kid === header.kid);
     }
-    if (!signingKey) return null;
+    if (!signingKey) return failed("SIGNING_KEY");
     const key = await crypto.subtle.importKey("jwk",
       { kty: "RSA", n: signingKey.n, e: signingKey.e, alg: "RS256", ext: true },
       { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["verify"]);
     const valid = await crypto.subtle.verify(
       "RSASSA-PKCS1-v1_5", key, base64UrlBytes(parts[2]),
       new TextEncoder().encode(parts[0] + "." + parts[1]));
-    return valid ? { email: adminEmail } : null;
+    return valid ? { email: adminEmail } : failed("SIGNATURE");
   } catch (error) {
     console.error("Admin authentication verification failed", error?.message || "error");
-    return null;
+    return failed("VERIFICATION_ERROR");
   }
 }
 
@@ -511,9 +512,15 @@ async function adminRequest(request, env, pathname) {
     });
   }
   const identity = await authorizeAdmin(request, env);
-  if (!identity) {
-    return new Response("Admin access denied. Check Cloudflare Access and your application settings.", {
-      status: 403, headers: { "Cache-Control": "no-store", "X-Robots-Tag": "noindex" }
+  if (!identity?.email) {
+    const code = identity?.error || "ACCESS_DENIED";
+    // Codes explain the category of failure without revealing tokens, email, or keys.
+    console.warn("Admin Access verification rejected request", code);
+    return new Response("Admin access denied (" + code + "). Check Cloudflare Access and your application settings.", {
+      status: 403, headers: {
+        "Content-Type": "text/plain; charset=utf-8",
+        "Cache-Control": "no-store", "X-Robots-Tag": "noindex"
+      }
     });
   }
   if (pathname.startsWith("/admin/api/")) {
