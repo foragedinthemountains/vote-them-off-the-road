@@ -5,6 +5,106 @@ const SITE_HOST = "votethemofftheroad.com";
 const SITE_ORIGIN = "https://" + SITE_HOST;
 const idPattern = /^[a-zA-Z0-9_-]{6,80}$/;
 const reportReasons = new Set(["harassment", "private_info", "false_claim", "copyright", "removal_request", "other"]);
+// Phase 3 features activate only when the D1 schema migration has run.
+const behaviorCategories = {
+  bad_parking: "Parking fails",
+  cutting_off: "Cut-offs & close calls",
+  tailgating: "Tailgating",
+  distracted: "Distracted driving",
+  signal: "Signals & intersections",
+  speeding: "Speeding",
+  road_rage: "Road rage",
+  roadside: "Other roadside oddities",
+  other: "Other"
+};
+let featureSchemaCache = { until: 0, ready: false };
+async function featureSchemaReady(env) {
+  if (!env.DB) return false;
+  if (featureSchemaCache.until > Date.now()) return featureSchemaCache.ready;
+  try {
+    await env.DB.prepare("SELECT category,auto_hidden_at,reviewed_at FROM incidents LIMIT 0").all();
+    await env.DB.prepare("SELECT reporter_key_hash,network_key_hash FROM reports LIMIT 0").all();
+    featureSchemaCache = { until: Date.now() + 30000, ready: true };
+  } catch {
+    featureSchemaCache = { until: Date.now() + 30000, ready: false };
+  }
+  return featureSchemaCache.ready;
+}
+function reportHideThreshold(env) {
+  const n = Number(env.AUTO_HIDE_REPORT_THRESHOLD ?? 5);
+  return Number.isSafeInteger(n) && n >= 3 && n <= 25 ? n : 5;
+}
+const autoHideMinimumNetworks = 3;
+const autoHideWindowSeconds = 7 * 86400;
+async function reportNetworkHash(request, env) {
+  const ip = request.headers.get("CF-Connecting-IP");
+  if (!ip || !env.TURNSTILE_SECRET_KEY) return null;
+  const key = await crypto.subtle.importKey("raw",
+    new TextEncoder().encode("report-network:" + env.TURNSTILE_SECRET_KEY),
+    { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const signature = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(ip));
+  return Array.from(new Uint8Array(signature), b => b.toString(16).padStart(2, "0")).join("");
+}
+function currentWeekStart() {
+  const d = new Date();
+  const day = d.getUTCDay();
+  return Math.floor(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() -
+    ((day + 6) % 7)) / 1000);
+}
+async function myParticipation(request, env) {
+  const hash = await voterHash(request);
+  if (!hash) return json({ votes: 0, recent_votes: 0, badge: "New juror", next_badge_at: 3 });
+  const stats = await env.DB.prepare(`
+    SELECT COUNT(*) AS votes,
+      COUNT(CASE WHEN created_at >= unixepoch()-86400 THEN 1 END) AS recent_votes
+    FROM votes WHERE voter_key_hash=?
+  `).bind(hash).first();
+  const votes = Number(stats?.votes || 0);
+  const tiers = [{ min: 0, name: "New juror" }, { min: 3, name: "Regular juror" },
+    { min: 10, name: "Road referee" }, { min: 25, name: "Veteran voter" },
+    { min: 100, name: "Legendary juror" }];
+  const badge = [...tiers].reverse().find(t => votes >= t.min).name;
+  const next = tiers.find(t => t.min > votes);
+  return json({ votes, recent_votes: Number(stats?.recent_votes || 0),
+    badge, next_badge_at: next?.min || null });
+}
+async function weeklyBoard(env) {
+  const weekStart = currentWeekStart();
+  if (!(await featureSchemaReady(env))) return json({
+    ready: false, week_start: weekStart, leaders: [], category_counts: [],
+    total_votes: 0, categories: behaviorCategories
+  });
+  const [leadersResult, categoryResult] = await Promise.all([
+    env.DB.prepare(`
+      SELECT i.id, i.title, i.category,
+        COUNT(CASE WHEN v.choice='off' THEN 1 END) AS off_votes,
+        COUNT(CASE WHEN v.choice='pass' THEN 1 END) AS pass_votes
+      FROM incidents i LEFT JOIN votes v ON v.incident_id=i.id
+      WHERE i.state_code='NH' AND i.status='published' AND i.created_at >= ?
+      GROUP BY i.id HAVING COUNT(v.incident_id) > 0
+      ORDER BY off_votes DESC, (off_votes + pass_votes) DESC, i.created_at DESC
+      LIMIT 100
+    `).bind(weekStart).all(),
+    env.DB.prepare(`
+      SELECT category, COUNT(*) AS incidents
+      FROM incidents WHERE state_code='NH' AND status='published'
+      GROUP BY category ORDER BY incidents DESC
+    `).all()
+  ]);
+  const winners = [], used = new Set();
+  for (const row of leadersResult.results || []) {
+    if (used.has(row.category)) continue;
+    winners.push(row);
+    used.add(row.category);
+  }
+  return json({ ready: true, week_start: weekStart,
+    leaders: winners.slice(0, 9), categories: behaviorCategories,
+    category_counts: categoryResult.results || [],
+    total_votes: (leadersResult.results || []).reduce((sum, row) =>
+      sum + Number(row.off_votes || 0) + Number(row.pass_votes || 0), 0)
+  });
+}
+
 const maxPhotos = 5;
 const maxPhotoBytes = 5 * 1024 * 1024;
 const maxRequestBytes = 32 * 1024 * 1024;
@@ -144,6 +244,8 @@ const summaryColumns = `
   COUNT(CASE WHEN v.choice = 'off' THEN 1 END) AS off_votes,
   COUNT(CASE WHEN v.choice = 'pass' THEN 1 END) AS pass_votes
 `;
+const summaryColumnsWithCategory = summaryColumns.replace("i.created_at,",
+  "i.created_at, i.category,");
 const summaryJoin = `
   FROM incidents i
   LEFT JOIN votes v ON v.incident_id = i.id
@@ -155,24 +257,34 @@ const summaryGroup = `
 async function listIncidents(url, env, request) {
   const state = (url.searchParams.get("state") || "NH").toUpperCase();
   const sort = url.searchParams.get("sort") || "newest";
+  const category = url.searchParams.get("category") || "";
   if (!/^[A-Z]{2}$/.test(state)) return json({ error: "Invalid state" }, 400);
-  if (!["newest", "top"].includes(sort)) return json({ error: "Invalid sort" }, 400);
-  const order = sort === "top" ? "off_votes DESC, i.created_at DESC" : "i.created_at DESC";
+  if (!["newest", "top", "week"].includes(sort)) return json({ error: "Invalid sort" }, 400);
+  if (category && !Object.hasOwn(behaviorCategories, category)) return json({ error: "Invalid category" }, 400);
+  const ready = await featureSchemaReady(env);
+  const columns = ready ? summaryColumnsWithCategory : summaryColumns;
+  if (category && !ready) return json({ error: "Categories are not active yet" }, 503);
+  const order = sort === "top" || sort === "week" ?
+    "off_votes DESC, i.created_at DESC" : "i.created_at DESC";
+  let filter = "WHERE i.state_code = ? AND i.status = 'published'";
+  const binds = [state];
+  if (category) { filter += " AND i.category = ?"; binds.push(category); }
+  if (sort === "week") { filter += " AND i.created_at >= ?"; binds.push(currentWeekStart()); }
   const result = await env.DB.prepare(`
-    SELECT ${summaryColumns} ${summaryJoin}
-    WHERE i.state_code = ? AND i.status = 'published'
+    SELECT ${columns} ${summaryJoin}
+    ${filter}
     ${summaryGroup} ORDER BY ${order} LIMIT 20
-  `).bind(state).all();
-  return json({
-    state, sort,
+  `).bind(...binds).all();
+  return json({ state, sort, category,
     incidents: await attachMyVotes(await attachImages(result.results || [], env), request, env)
   });
 }
 
 async function getIncident(id, env, request) {
   if (!idPattern.test(id)) return json({ error: "Not found" }, 404);
+  const columns = await featureSchemaReady(env) ? summaryColumnsWithCategory : summaryColumns;
   const row = await env.DB.prepare(`
-    SELECT ${summaryColumns} ${summaryJoin}
+    SELECT ${columns} ${summaryJoin}
     WHERE i.id = ? AND i.status = 'published'
     ${summaryGroup} LIMIT 1
   `).bind(id).first();
@@ -265,6 +377,9 @@ async function createIncident(request, env) {
   if (title.length < 5 || title.length > 160 || description.length < 20 || description.length > 3000 || location.length > 100) {
     return json({ error: "Title must be 5–160 characters, story 20–3000, location at most 100." }, 400);
   }
+  const category = typeof body.category === "string" ? body.category : "other";
+  if (!Object.hasOwn(behaviorCategories, category)) return json({ error: "Invalid driving behavior category" }, 400);
+  const enhanced = await featureSchemaReady(env);
   const photos = Array.isArray(body.photos) ? body.photos : [];
   if (photos.length && !photosReady(env)) return json({ error: "Photo uploads are being set up. Submit a text story for now." }, 503);
   if (photos.length > maxPhotos) return json({ error: "Maximum five photos" }, 400);
@@ -278,10 +393,17 @@ async function createIncident(request, env) {
   const id = crypto.randomUUID();
   // Keep the incident hidden until every photo and database reference is safely stored.
   const initialStatus = photos.length ? "hidden" : "published";
-  await env.DB.prepare(`
-    INSERT INTO incidents (id, state_code, location_label, title, description, status)
-    VALUES (?, 'NH', ?, ?, ?, ?)
-  `).bind(id, location || null, title, description, initialStatus).run();
+  if (enhanced) {
+    await env.DB.prepare(`
+      INSERT INTO incidents (id, state_code, location_label, title, description, status, category)
+      VALUES (?, 'NH', ?, ?, ?, ?, ?)
+    `).bind(id, location || null, title, description, initialStatus, category).run();
+  } else {
+    await env.DB.prepare(`
+      INSERT INTO incidents (id, state_code, location_label, title, description, status)
+      VALUES (?, 'NH', ?, ?, ?, ?)
+    `).bind(id, location || null, title, description, initialStatus).run();
+  }
   if (!photos.length) return json({ ok: true, id, message: "Your driving story is on the board." }, 201);
   const uploadedKeys = [];
   try {
@@ -316,19 +438,21 @@ async function createIncident(request, env) {
 
 // Optional native Cloudflare Email Service alerts. No emails are sent until
 // a REPORT_ALERT_EMAIL binding is configured and the recipient is verified.
-async function notifyAdminOfNewReport(env, incidentId, title, reason) {
+async function notifyAdminOfNewReport(env, incidentId, title, reason, autoHidden = false) {
   if (!env.REPORT_ALERT_EMAIL || !env.ADMIN_EMAIL) return;
   try {
     await env.REPORT_ALERT_EMAIL.send({
       to: String(env.ADMIN_EMAIL).trim(),
       from: "alerts@" + SITE_HOST,
-      subject: "Vote Them Off the Road: New " + reason.replace(/_/g, " ") + " report",
+      subject: "Vote Them Off the Road: " + (autoHidden ? "AUTO-HIDDEN POST" : "New report") +
+        " (" + reason.replace(/_/g, " ") + ")",
       text: "A report or removal request needs review.\n\n" +
         "Incident: " + title + "\n" +
         "Reason: " + reason.replace(/_/g, " ") + "\n" +
         "Incident ID: " + incidentId + "\n\n" +
         "Review: " + SITE_ORIGIN + "/admin/\n\n" +
-        "The incident has not been hidden automatically."
+        (autoHidden ? "The incident was automatically hidden and needs priority review." :
+          "The incident remains published unless manually hidden or auto-hidden by reports.")
     });
   } catch (error) {
     // Never drop a valid report due to an email service outage.
@@ -349,14 +473,52 @@ async function createReport(id, request, env, ctx) {
   }
   const incident = await env.DB.prepare("SELECT title FROM incidents WHERE id = ? AND status = 'published'").bind(id).first();
   if (!incident) return json({ error: "Not found" }, 404);
-  await env.DB.prepare(`
-    INSERT INTO reports (id, incident_id, reason, details, contact_email)
-    VALUES (?, ?, ?, ?, ?)
-  `).bind(crypto.randomUUID(), id, reason, note, email || null).run();
-  if (env.REPORT_ALERT_EMAIL && ctx?.waitUntil) {
-    ctx.waitUntil(notifyAdminOfNewReport(env, id, incident.title, reason));
+  const enhanced = await featureSchemaReady(env);
+  let autoHidden = false;
+  if (enhanced) {
+    const reporter = await voterHash(request);
+    const network = await reportNetworkHash(request, env);
+    // Reports with blocked cookies or missing CF network context remain reviewable,
+    // but cannot inflate automated hiding thresholds.
+    const result = await env.DB.prepare(`
+      INSERT OR IGNORE INTO reports
+        (id, incident_id, reason, details, contact_email, reporter_key_hash, network_key_hash)
+      SELECT ?, ?, ?, ?, ?, ?, ? WHERE EXISTS
+        (SELECT 1 FROM incidents WHERE id=? AND status='published')
+    `).bind(crypto.randomUUID(), id, reason, note, email || null, reporter, network, id).run();
+    if (!result.meta?.changes) {
+      return json({ ok: true, duplicate: true, message: "This browser has already reported the incident." });
+    }
+    if (reporter && network) {
+      const windowStart = Math.floor(Date.now() / 1000) - autoHideWindowSeconds;
+      const change = await env.DB.prepare(`
+        UPDATE incidents SET status='hidden', auto_hidden_at=unixepoch(), updated_at=unixepoch()
+        WHERE id=? AND status='published'
+          AND (SELECT COUNT(DISTINCT reporter_key_hash) FROM reports
+               WHERE incident_id=? AND created_at >= ?
+                 AND created_at > COALESCE((SELECT reviewed_at FROM incidents WHERE id=?),0))
+              >= ?
+          AND (SELECT COUNT(DISTINCT network_key_hash) FROM reports
+               WHERE incident_id=? AND created_at >= ?
+                 AND created_at > COALESCE((SELECT reviewed_at FROM incidents WHERE id=?),0))
+              >= ?
+      `).bind(id, id, windowStart, id, reportHideThreshold(env),
+               id, windowStart, id, autoHideMinimumNetworks).run();
+      autoHidden = Number(change.meta?.changes || 0) > 0;
+    }
+  } else {
+    await env.DB.prepare(`
+      INSERT INTO reports (id, incident_id, reason, details, contact_email)
+      VALUES (?, ?, ?, ?, ?)
+    `).bind(crypto.randomUUID(), id, reason, note, email || null).run();
   }
-  return json({ ok: true, message: "Report received and pending review. The incident stays visible unless it is hidden or removed." }, 201);
+  if (env.REPORT_ALERT_EMAIL && ctx?.waitUntil) {
+    ctx.waitUntil(notifyAdminOfNewReport(env, id, incident.title, reason, autoHidden));
+  }
+  return json({ ok: true, auto_hidden: autoHidden,
+    message: autoHidden ?
+      "Report received. This incident was temporarily hidden pending review." :
+      "Report received and pending review. Multiple independent reports may temporarily hide a post." }, 201);
 }
 
 
@@ -519,30 +681,60 @@ async function permanentlyDeleteIncident(env, id, identity) {
 
 async function adminApi(request, env, path, identity) {
   if (path === "/admin/api/me" && request.method === "GET") {
-    return json({ ok: true, email: identity.email, alerts_configured: Boolean(env.REPORT_ALERT_EMAIL && env.ADMIN_EMAIL) });
+    return json({ ok: true, email: identity.email,
+      alerts_configured: Boolean(env.REPORT_ALERT_EMAIL && env.ADMIN_EMAIL),
+      enhanced: await featureSchemaReady(env), auto_hide_threshold: reportHideThreshold(env) });
   }
   if (path === "/admin/api/reports" && request.method === "GET") {
-    const rows = await env.DB.prepare(`
+    const enhanced = await featureSchemaReady(env);
+    const rows = await env.DB.prepare(enhanced ? `
+      SELECT r.id, r.incident_id, r.reason, r.details, r.contact_email,
+        r.status, r.created_at, r.resolved_at,
+        i.title AS incident_title, i.status AS incident_status,
+        i.category AS incident_category, i.auto_hidden_at,
+        (SELECT COUNT(DISTINCT rr.reporter_key_hash) FROM reports rr
+          WHERE rr.incident_id=r.incident_id AND rr.created_at >= unixepoch()-604800
+          AND rr.created_at > COALESCE(i.reviewed_at,0)) AS unique_reporters
+      FROM reports r LEFT JOIN incidents i ON i.id=r.incident_id
+      ORDER BY CASE WHEN i.status='hidden' AND i.auto_hidden_at IS NOT NULL
+        AND r.status IN ('open','reviewing') THEN 0
+        WHEN r.status='open' THEN 1 WHEN r.status='reviewing' THEN 2 ELSE 3 END,
+        r.created_at DESC LIMIT 200
+    ` : `
       SELECT r.id, r.incident_id, r.reason, r.details, r.contact_email,
         r.status, r.created_at, r.resolved_at,
         i.title AS incident_title, i.status AS incident_status
-      FROM reports r
-      LEFT JOIN incidents i ON i.id = r.incident_id
+      FROM reports r LEFT JOIN incidents i ON i.id=r.incident_id
       ORDER BY CASE r.status WHEN 'open' THEN 0 WHEN 'reviewing' THEN 1 ELSE 2 END,
-        r.created_at DESC LIMIT 100
+        r.created_at DESC LIMIT 200
     `).all();
-    return json({ reports: rows.results || [] });
+    return json({ reports: rows.results || [], enhanced });
   }
   if (path === "/admin/api/incidents" && request.method === "GET") {
+    const enhanced = await featureSchemaReady(env);
     const rows = await env.DB.prepare(`
       SELECT i.id, i.state_code, i.location_label, i.title, i.status,
         i.created_at, i.updated_at,
+        ${enhanced ? "i.category, i.auto_hidden_at," : ""}
         (SELECT COUNT(*) FROM votes v WHERE v.incident_id = i.id AND v.choice = 'off') AS off_votes,
         (SELECT COUNT(*) FROM votes v WHERE v.incident_id = i.id AND v.choice = 'pass') AS pass_votes,
         (SELECT COUNT(*) FROM reports r WHERE r.incident_id = i.id AND r.status IN ('open', 'reviewing')) AS pending_reports
-      FROM incidents i ORDER BY i.created_at DESC LIMIT 100
+      FROM incidents i
+      ORDER BY ${enhanced ? "CASE WHEN i.status='hidden' AND i.auto_hidden_at IS NOT NULL THEN 0 ELSE 1 END," : ""}
+        i.created_at DESC LIMIT 200
     `).all();
-    return json({ incidents: rows.results || [] });
+    return json({ incidents: rows.results || [], enhanced });
+  }
+  if (path === "/admin/api/analytics" && request.method === "GET") {
+    const enhanced = await featureSchemaReady(env);
+    const [reasons, categories] = await Promise.all([
+      env.DB.prepare("SELECT reason,COUNT(*) AS count FROM reports GROUP BY reason ORDER BY count DESC").all(),
+      enhanced ? env.DB.prepare(
+        "SELECT category,COUNT(*) AS count FROM incidents GROUP BY category ORDER BY count DESC"
+      ).all() : Promise.resolve({ results: [] })
+    ]);
+    return json({ enhanced, reasons: reasons.results || [], categories: categories.results || [],
+      category_labels: behaviorCategories });
   }
   if (request.method !== "PATCH" && request.method !== "DELETE") return json({ error: "Not found" }, 404);
   if (!isAdminMutationAllowed(request)) return json({ error: "Invalid request origin" }, 403);
@@ -562,8 +754,10 @@ async function adminApi(request, env, path, identity) {
     }
     const existing = await env.DB.prepare("SELECT id FROM incidents WHERE id = ?").bind(id).first();
     if (!existing) return json({ error: "Incident not found" }, 404);
-    await env.DB.prepare(
-      "UPDATE incidents SET status = ?, updated_at = unixepoch() WHERE id = ?"
+    const enhanced = await featureSchemaReady(env);
+    await env.DB.prepare(enhanced && state === "published" ?
+      "UPDATE incidents SET status=?, updated_at=unixepoch(), reviewed_at=unixepoch(), auto_hidden_at=NULL WHERE id=?" :
+      "UPDATE incidents SET status=?, updated_at=unixepoch() WHERE id=?"
     ).bind(state, id).run();
     console.log("Admin incident update", { email: identity.email, id, status: state });
     return json({ ok: true, id, status: state });
@@ -667,10 +861,16 @@ export default {
     try {
       if (pathname === "/api/config" && request.method === "GET") {
         const enabled = writesReady(env);
-        return json({ submissions_enabled: enabled, reports_enabled: enabled,
-          photos_enabled: photosReady(env), voting_enabled: Boolean(env.DB && env.VOTE_RATE_LIMITER), max_photos: maxPhotos,
-          turnstile_site_key: enabled ? env.TURNSTILE_SITE_KEY : null });
+        const enhanced = await featureSchemaReady(env);
+        return withVoterCookie(request, json({ submissions_enabled: enabled,
+          reports_enabled: enabled, photos_enabled: photosReady(env),
+          voting_enabled: Boolean(env.DB && env.VOTE_RATE_LIMITER), max_photos: maxPhotos,
+          community_features_enabled: enhanced, auto_hide_report_threshold: reportHideThreshold(env),
+          category_labels: behaviorCategories,
+          turnstile_site_key: enabled ? env.TURNSTILE_SITE_KEY : null }));
       }
+      if (pathname === "/api/weekly-board" && request.method === "GET") return weeklyBoard(env);
+      if (pathname === "/api/my-stats" && request.method === "GET") return withVoterCookie(request, await myParticipation(request, env));
       if (pathname === "/api/health" && request.method === "GET") {
         const result = await env.DB.prepare("SELECT 1 AS healthy").first();
         if (result?.healthy !== 1) throw new Error("D1 probe failed");
