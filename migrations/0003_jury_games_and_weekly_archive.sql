@@ -52,3 +52,8 @@ CREATE TABLE IF NOT EXISTS weekly_category_results (
   recorded_at INTEGER NOT NULL DEFAULT (unixepoch()),
   PRIMARY KEY (week_start, category)
 );
+
+CREATE TABLE IF NOT EXISTS weekly_snapshots (
+  week_start INTEGER PRIMARY KEY,
+  recorded_at INTEGER NOT NULL DEFAULT (unixepoch())
+);
