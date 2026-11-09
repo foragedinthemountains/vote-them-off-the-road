@@ -39,7 +39,7 @@
       status.textContent=(offset?"Week of ":"This week, starting ")+
         dateLabel(data.week_start)+". "+
         (data.archived?"Final award results. ":"Weekly standings update as votes arrive. ")+
-        data.minimum_votes+" total votes and a Funny majority qualify for the official title.";
+        data.minimum_votes+" combined reactions or duel points and a Funny majority qualify for the official title.";
       if(!podiums.length){
         grid.append(el("p","funny-empty",offset?
           "No qualifying funny moments recorded for that week.":
@@ -51,19 +51,24 @@
         const rank = row.qualified ?
           ({1:"🥇",2:"🥈",3:"🥉"}[row.rank] || "#"+row.rank) :
           "#"+row.rank;
+        const duelWins=Number(row.funny_battle_wins||0);
+        const funnyScore=Number(row.funny_score??
+          (Number(row.funny_votes||0)+duelWins));
         card.append(el("span","weekly-category",rank+
           (row.qualified?" · FUNNIEST MOMENT OF THE WEEK":" · FUNNIEST MOMENT NOMINEE")),
           el("strong","",row.title),
-          el("span","weekly-votes",
-            "😂 "+Number(row.funny_votes||0)+" funny · 🚫 "+
-            Number(row.off_votes||0)+" off · ✓ "+Number(row.pass_votes||0)+" pass"));
+          el("span","weekly-votes","😂 "+Number(row.funny_votes||0)+
+            " Funny reactions + ⚔️ "+duelWins+" comedy duel wins = "+funnyScore+
+            " Funniest points"),
+          el("span","weekly-votes","🚫 "+Number(row.off_votes||0)+" Off · ✓ "+
+            Number(row.pass_votes||0)+" Pass"));
         const qualification=row.qualified?
           (data.archived?"🏆 Official Funniest Moment of the Week":"Currently qualified · Final winner announced after the week ends"):
           Number(row.total_votes)===0?
             "New contender · Be the first to react 😂":
           Number(row.total_votes)<Number(data.minimum_votes)?
             "Needs "+Math.max(0,data.minimum_votes-Number(row.total_votes))+
-            " more reactions to qualify" :
+            " more reactions or duel points to qualify" :
             "Needs a majority of Funny reactions to qualify";
         card.append(el("p","weekly-qualification",qualification));
         const controls=el("div","weekly-card-actions");
@@ -96,5 +101,6 @@
     refresh(Number(weekSelect?.value||0)));
   if(weekSelect)weekSelect.addEventListener("change",()=>refresh(Number(weekSelect.value)));
   window.addEventListener("vtor:vote",()=>refresh(Number(weekSelect?.value||0)));
+  window.addEventListener("vtor:battle",()=>refresh(Number(weekSelect?.value||0)));
   refresh(0);
 })();
