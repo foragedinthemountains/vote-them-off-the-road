@@ -8,8 +8,8 @@ Source code for **https://votethemofftheroad.com/**. New Hampshire is the first 
 - Full-stack Cloudflare Worker with static asset fallback.
 - Cloudflare D1 database binding named `DB`, pointing to `votethemofftheroad-prod`.
 - The schema in `migrations/0001_initial_schema.sql` defines `incidents`, `incident_media`, `votes`, and `reports`.
-- **Read-only** incident endpoints and a New Hampshire listing that shows the empty state until actual submissions are available.
-- No public posting, uploading, voting, commenting, or reporting endpoints are enabled yet.
+- Public incident submissions, up to five photos, off/pass voting, and abuse reports are live.
+- The protected `/admin/` dashboard manages moderation. Optional jury engagement features activate after migrations 0002 and 0003.
 
 ## Architecture
 
@@ -140,13 +140,58 @@ The production database must be migrated manually by running **migrations/0002_c
 
 - New submissions can choose a **community-reported driving-behavior category**, such as parking, tailgating, speeding, signals, distracted driving, road rage and more. Existing posts default to `other`.
 - The public incident feed supports `?sort=week` and `?category=...`; `GET /api/weekly-board` returns this week's top publicly visible incidents per category and aggregate category counts.
-- Weekly board uses Monday **UTC** as the start of the week. It includes incidents first posted during that week and is ranked by votes to take off the road. Do not describe a week's winners as proof of violations or verified identities.
+- Weekly board uses Monday **America/New_York** time as the start of the week. It includes incidents first posted during that week and is ranked by votes to take off the road. Do not describe a week's winners as proof of violations or verified identities.
 - `GET /api/my-stats` counts distinct incidents voted on by the browser's random voter identifier and assigns "juror" badges. This is browser-level engagement, not user-account identity.
 - Individual story links use `/nh/?incident=ID#incidents`, allowing easy sharing without leaking hidden/removed incident content.
 - Admin `GET /admin/api/analytics` returns aggregate report reasons and driving-behavior category counts. The admin dashboard sorts auto-hidden incidents first and filters reports by reason, status and urgent auto-hidden state.
 
-Next-stage ideas, not yet implemented: email opt-in weekly summaries, daily challenges, verified-user profiles, verified streaks, end-of-week share cards, local region leaderboards, reputation / trust-weighted moderation, followable categories, and rewards for constructive reporting.
+Next-stage ideas, not yet implemented: opt-in weekly email summaries, optional verified user accounts and cross-device streak syncing, local region leaderboards, trust-weighted moderation, and followable categories.
 
 ### Daily jury duty
 
-The private-by-browser `GET /api/my-stats` endpoint tracks participation from anonymous votes, a three-new-votes-per-UTC-day challenge, and a consecutive-UTC-day voting streak. The browser's server-stored hashed voter identifier is used, not a registered user account. Changing a prior vote does not create a new incident vote or additional participation credit. These streaks and badges can be reset by clearing browser cookies or switching devices, so they are **lightweight participation incentives**, not verified rewards. The weekly jury UI refreshes after votes are saved.
+The browser-keyed `GET /api/my-stats` endpoint tracks anonymous distinct incident votes, an available-case-aware challenge of up to three new votes per **Eastern Time** calendar day, and a consecutive-Eastern-day participation streak. The browser's server-stored hashed voter identifier is used, not a registered user account. Changing a prior vote does not create a new incident vote or additional participation credit. These streaks and badges can be reset by clearing browser cookies or switching devices, so they are **lightweight participation incentives**, not verified rewards. The weekly jury UI refreshes after votes are saved.
+
+## Phase 4: Daily Jury Duty, challenges, weekly podium and archive
+
+**Deployment and migration order:**
+
+1. Wait until the latest GitHub-connected Worker deployment shows Ready.
+2. Apply `migrations/0002_categories_report_moderation.sql` in the Cloudflare D1 Console if it has not already been applied. **Do not re-run its ALTER statements if they already succeeded.**
+3. Apply `migrations/0003_jury_games_and_weekly_archive.sql` once in the **same production database**. All its tables use CREATE TABLE IF NOT EXISTS. It is harmless if the migration is re-run, although it should be tracked as applied.
+4. Refresh `/nh/`, confirm the week's board and the two jury games load, and run the tests below. The Worker falls back safely when game tables do not yet exist.
+5. Cron triggers are defined in `wrangler.jsonc` as `5 4,5 * * 1`. At 00:05 **Eastern Monday**, the Worker archives the previous week's top three qualifying publicly visible incidents in each category and the community's category-submission totals. It executes only during the one schedule slot that actually corresponds to 00:05 Eastern, regardless of DST. See Cloudflare Workers > Settings > Triggers to confirm Cron is deployed.
+6. Previous weeks without a stored snapshot are explicitly marked **not finalized**; their live historical rankings can change. Archived result snapshots retain vote counts as they were at archiving, while removing/hiding content prevents the associated incident from appearing publicly.
+
+**Voting and streak rules:**
+
+- Reset is **12:00 AM America/New_York**, automatically following daylight-saving time. The browser displays the countdown to that boundary.
+- Each unique incident **first voted on** that day counts toward daily jury duty. Editing a previous vote does **not** add more participation. Daily target is min(3, today's new incident votes plus eligible published cases the browser has not yet voted on).
+- Streak activity counts at least one **first-time incident vote** in an Eastern day, or an explicit "caught up" check-in **only when no eligible unvoted cases remain**.
+- An eligible juror can rescue **yesterday**, once per Eastern month, if they had three consecutive active days immediately before the missed day. Saved days display as ★ in the streak calendar.
+- Everything is browser-anonymous. Cookies, switching devices and deleted posts can affect displayed history, and activity counters do not prove identity. Accounts and cross-device sync are **not implemented**.
+
+**Weekly rankings:**
+
+- Weekly contests run Monday 00:00 through the following Monday 00:00 Eastern.
+- Eligible cases were **first submitted during that week** and are currently published. Regular Off/Pass votes accumulate only once per browser/incident; there is no separate weekly vote.
+- The live podium displays up to the three highest off-vote cases in each category. An **official weekly award** requires at least `WEEKLY_MIN_VOTES=5` total regular votes **and more Off than Pass votes**. Otherwise the card is provisional/ineligible. Former weeks with archived snapshots show those recorded winners only.
+- Users can generate a 1200×630 branded canvas PNG for social sharing. The graphic states that votes are community opinion and not verified traffic violations.
+- The configured week/archive selector supports the current week and the previous eight weeks. Admin auto-hiding and permanent removal exclude stories from public podium and archived link displays.
+
+**Additional game endpoints (available after migration 0003):**
+
+- `POST /api/jury/checkin`: maintain an active day only when already caught up with all published incidents.
+- `POST /api/jury/streak-save`: one monthly earned rescue, server-validated against genuine preceding activity.
+- `GET /api/jury/battle` / `POST /api/jury/battle`: anonymously judge the worse of two currently published incident stories. At most one stored choice per browser per unordered pair. Battles **do not** add Off/Pass votes or affect regular rankings.
+- `GET /api/jury/prediction` / `POST /api/jury/prediction`: submit or update one anonymous prediction about the **most-submitted driving category during the upcoming Eastern week**. A prediction is scored only when that future week has an archived, nonzero category total. Tied top categories both count as correct.
+- The public site uses rate limiting and same-origin checks for these game writes, and the game endpoints stay disabled when required D1 tables are absent.
+- No points or badges reward filing reports or attempting to identify drivers.
+
+**Manual acceptance tests:**
+
+- Voting on a previously unvoted case increases daily progress. Changing that same vote must not increase progress.
+- Verify /api/my-stats returns `next_reset_at` and its countdown resets at Eastern midnight, including daylight-saving dates.
+- A case with fewer than five votes is labeled provisional, and a Pass-majority case cannot earn an official worst-of-week award.
+- After migration 0003 and at least two published cases, head-to-head returns a pairing; submitting once works and repeating the exact pair fails.
+- Predict a next-week category, reload, and verify the choice remains. Changing it before next week begins should update the stored preference.
+- Run an old test incident's hide action in the admin dashboard and verify it disappears from the public weekly board.
