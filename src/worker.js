@@ -309,6 +309,89 @@ async function juryXPOverview(request,env){
       sum+Number(row.xp||0),0),missions});
 }
 
+
+async function getVerdictGuess(request,env){
+  if(!(await xpSchemaReady(env)))return json({
+    ready:false,message:"Guess the Verdict opens after migration 0005."});
+  const voter=await voterHash(request);
+  if(!voter)return json({ready:false,message:"Reload to start your anonymous Jury XP profile."});
+  const category=new URL(request.url).searchParams.get("category")||"";
+  if(category && !Object.hasOwn(behaviorCategories,category))
+    return json({error:"Invalid category"},400);
+  const vt=await activeVoteTable(env);
+  const query=
+    "SELECT i.id,i.title,i.category,SUBSTR(i.description,1,260) AS description " +
+    "FROM incidents i WHERE i.state_code='NH' AND i.status='published' " +
+    (category?"AND i.category=? ":"")+
+    "AND EXISTS(SELECT 1 FROM "+vt+" v WHERE v.incident_id=i.id) "+
+    "AND NOT EXISTS(SELECT 1 FROM jury_verdict_guesses g "+
+    "WHERE g.incident_id=i.id AND g.voter_key_hash=?) "+
+    "ORDER BY i.created_at DESC LIMIT 30";
+  const rows=await env.DB.prepare(query)
+    .bind(...(category?[category]:[]),voter).all();
+  const incidents=rows.results||[];
+  if(!incidents.length)return json({ready:true,incident:null,
+    message:"No unguessed cases with community reactions in this category yet. New votes will unlock more."});
+  // Rotating among the most recent 30 eligible cases makes the game replayable
+  // without showing the tallies before the first guess.
+  const chosen=incidents[Math.floor(Math.random()*incidents.length)];
+  return json({ready:true,incident:chosen,
+    message:"Predict the reaction currently leading this case. Results are revealed after your first guess."});
+}
+async function castVerdictGuess(request,env){
+  if(!(await xpSchemaReady(env)))return json({error:"Verdict guessing is not active yet"},503);
+  if(!isCommunityActionAllowed(request))return json({error:"Invalid request origin"},403);
+  const voter=await voterHash(request);
+  if(!voter)return json({error:"Refresh the page to establish your jury ID"},428);
+  const parsed=await parseBody(request);
+  if(parsed.error)return json({error:parsed.error},parsed.status);
+  const id=parsed.value.incident_id,guess=parsed.value.guess;
+  if(!idPattern.test(id||"")||!["off","pass","funny"].includes(guess))
+    return json({error:"Select a valid case and reaction"},400);
+  if(!(await limitJuryAction(request,env)))
+    return json({error:"Too many jury actions. Try later."},429);
+  const vt=await activeVoteTable(env);
+  const counts=await env.DB.prepare(
+    "SELECT i.id,COUNT(CASE WHEN v.choice='off' THEN 1 END) AS off_votes,"+
+    "COUNT(CASE WHEN v.choice='pass' THEN 1 END) AS pass_votes,"+
+    "COUNT(CASE WHEN v.choice='funny' THEN 1 END) AS funny_votes "+
+    "FROM incidents i JOIN "+vt+" v ON v.incident_id=i.id "+
+    "WHERE i.id=? AND i.status='published' AND i.state_code='NH' "+
+    "GROUP BY i.id"
+  ).bind(id).first();
+  if(!counts)return json({error:"The case has no community reactions yet or is no longer public."},409);
+  const totals={off:Number(counts.off_votes||0),
+    pass:Number(counts.pass_votes||0),funny:Number(counts.funny_votes||0)};
+  const max=Math.max(...Object.values(totals));
+  const leaders=Object.entries(totals).filter(([_,n])=>n===max);
+  const resultChoice=leaders.length===1?leaders[0][0]:null;
+  const correct=Boolean(resultChoice&&resultChoice===guess);
+  const day=easternDateKey();
+  const saved=await env.DB.prepare(
+    "INSERT OR IGNORE INTO jury_verdict_guesses "+
+    "(incident_id,voter_key_hash,guess,result_choice,was_correct,"+
+    "off_votes,pass_votes,funny_votes,eastern_day) "+
+    "SELECT ?,?,?,?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM incidents "+
+    "WHERE id=? AND status='published')"
+  ).bind(id,voter,guess,resultChoice,resultChoice?Number(correct):null,
+    totals.off,totals.pass,totals.funny,day,id).run();
+  if(!saved.meta?.changes)return json({error:"You already guessed this case. Try another."},409);
+  let earned=0;
+  try{
+    if(await awardLimitedDailyXP(env,voter,"guess:"+id,"verdict_guess",5,2,day))earned+=5;
+    if(correct&&totals.off+totals.pass+totals.funny>=2 &&
+      await awardLimitedDailyXP(env,voter,"correct:"+id,"verdict_correct",5,2,day))
+      earned+=5;
+    await awardReturningJurorXP(env,voter,day);
+  }catch(error){
+    console.error("Verdict-guess XP failed",error?.message||"unknown");
+  }
+  return json({ok:true,incident_id:id,guess,current_lead:resultChoice,
+    correct,tie:resultChoice===null,counts:totals,xp_earned:earned,
+    message:resultChoice===null?"The community vote is tied!":
+      correct?"You guessed the current leader!":"The jury currently leans a different way."});
+}
+
 async function myParticipation(request, env) {
   const time = easternGameDay();
   const ready = await gameSchemaReady(env);
@@ -1726,6 +1809,10 @@ export default {
       if (pathname === "/api/my-stats" && request.method === "GET") return withVoterCookie(request, await myParticipation(request, env));
       if (pathname === "/api/jury/xp" && request.method === "GET")
         return withVoterCookie(request,await juryXPOverview(request,env));
+      if (pathname === "/api/jury/verdict-guess" && request.method === "GET")
+        return withVoterCookie(request,await getVerdictGuess(request,env));
+      if (pathname === "/api/jury/verdict-guess" && request.method === "POST")
+        return castVerdictGuess(request,env);
       if (pathname === "/api/jury/checkin" && request.method === "POST")
         return juryCheckin(request,env);
       if (pathname === "/api/jury/streak-save" && request.method === "POST")
