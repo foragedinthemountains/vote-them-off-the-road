@@ -11,7 +11,7 @@ This is a static preview website (no framework or database required) for **VoteT
 - `/404.html` Useful not-found page
 - Mobile-responsive styling, SVG favicon, sitemap, Cloudflare security headers
 
-**Not yet included:** submission forms, photo uploads, real voting, user accounts, moderation tools, analytics, or a Facebook page link. The sample incident on the homepage is labeled fictional and voting controls are illustrative, not buttons.
+**Not yet included:** submission forms, photo uploads, real voting, user accounts, reporting/removal tools, analytics, or a Facebook page link. The sample incident on the homepage is labeled fictional and voting controls are illustrative, not buttons.
 
 ## Local preview
 
@@ -38,7 +38,7 @@ Cloudflare docs: https://developers.cloudflare.com/pages/get-started/git-integra
 ## After the preview is live
 
 - Customize the homepage and add a genuine Facebook page URL once known.
-- Add user-generated incident submissions, image uploads, blur/redaction tools, moderator approval, abuse reporting, and a removal workflow.
+- Add user-generated incident submissions, image/video uploads, clear reporting tools, and a straightforward removal workflow. Plan for routine posts to appear without pre-approval, with intervention when material is reported or violates site rules.
 - Add one-user-one-vote (or other abuse-resistant) voting, public rankings, and state pages backed by a database (e.g., Supabase).
 - Add Cloudflare Turnstile to submission forms with mandatory server-side token verification.
 - Update privacy disclosures and legal terms before collecting or publishing user content.
@@ -52,7 +52,7 @@ Short bio:
 > Bad driving. Public verdict. 🚧 New Hampshire first. Share the ridiculous, vote on the outrageous, and let the internet decide. Coming soon!
 
 Long About:
-> Vote Them Off the Road is a community-powered place for the most ridiculous moments behind the wheel. From head-scratching parking jobs to unbelievable road maneuvers, we'll feature moderated, anonymous submissions and let visitors cast their votes. We're starting in New Hampshire and plan to expand state by state. We're here for the laughs, not to identify or harass drivers. Follow for launch updates!
+> Vote Them Off the Road is a community-powered place for the most ridiculous moments behind the wheel. From head-scratching parking jobs to unbelievable road maneuvers, we'll feature driving stories and clips and let visitors cast their votes. We're starting in New Hampshire and plan to expand state by state. We're here for the laughs, memorable moments, and outrageous votes. Follow for launch updates!
 
 Suggested first pinned post:
-> 🚧 New Hampshire, you're first! We’re building Vote Them Off the Road, a place to share the wildest driving moments and let the community vote on them. The website preview is on the way, with moderated submissions and voting to follow. Give the page a follow. We’ll announce when nominations open!
+> 🚧 New Hampshire, you're first! We’re building Vote Them Off the Road, a place to share the wildest driving moments and let the community vote on them. The website preview is on the way, with submissions and voting to follow. Give the page a follow. We’ll announce when nominations open!
