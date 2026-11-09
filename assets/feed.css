@@ -1,0 +1,17 @@
+
+/* Database-backed New Hampshire incident feed */
+.feed-heading{display:flex;flex-wrap:wrap;align-items:end;justify-content:space-between;gap:18px}
+.feed-heading h2{margin-bottom:12px}
+.feed-filters{display:flex;gap:8px;margin:12px 0}
+.feed-filters button{font:inherit;font-weight:800;border:2px solid var(--ink);border-radius:9px;background:transparent;padding:9px 17px;cursor:pointer}
+.feed-filters button[aria-pressed="true"]{background:var(--yellow)}
+.feed-status{font-size:14px;color:var(--muted);margin:12px 0 20px}
+.incident-feed{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:18px}
+.feed-card,.feed-empty{border:1px solid var(--line);background:var(--white);border-radius:17px;padding:24px}
+.feed-card h3,.feed-empty h3{font-size:28px}
+.feed-meta{text-transform:uppercase;font-size:12px;font-weight:800;color:#a9592c;letter-spacing:.06em}
+.feed-description{white-space:pre-wrap;overflow-wrap:anywhere;color:var(--muted)}
+.feed-vote-counts{display:flex;flex-wrap:wrap;gap:12px;font-size:13px;font-weight:800;margin-top:18px}
+.feed-vote-counts span{padding:8px 10px;background:#eee9dc;border-radius:8px}
+.feed-empty{grid-column:1/-1}
+.feed-empty p{margin-bottom:0;color:var(--muted)}
