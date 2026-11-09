@@ -509,6 +509,55 @@ async function serveImage(id, env) {
   } });
 }
 
+// Social-platform previews for individual public cases. Never expose metadata
+// from hidden or removed incidents, and avoid caching changed moderation status.
+function escapeMeta(value) {
+  return String(value ?? "").replace(/&/g,"&amp;").replace(/"/g,"&quot;")
+    .replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/'/g,"&#39;");
+}
+async function serveSharedIncidentPage(request, env, url) {
+  const id=url.searchParams.get("incident");
+  if (!idPattern.test(id || "")) return env.ASSETS.fetch(request);
+  let row=null;
+  try {
+    row=await env.DB.prepare(
+      "SELECT i.title,i.description,m.id AS image_id FROM incidents i " +
+      "LEFT JOIN incident_media m ON m.id=(" +
+      "SELECT id FROM incident_media WHERE incident_id=i.id AND media_type='image' ORDER BY display_order LIMIT 1) " +
+      "WHERE i.id=? AND i.status='published' LIMIT 1"
+    ).bind(id).first();
+  } catch (error) {
+    console.warn("Incident preview unavailable", error?.message || "error");
+  }
+  if (!row) return env.ASSETS.fetch(request);
+  const asset=await env.ASSETS.fetch(new Request(SITE_ORIGIN+"/nh/"));
+  if (!asset.ok) return asset;
+  const page=await asset.text();
+  const pageUrl=SITE_ORIGIN+"/nh/?incident="+encodeURIComponent(id);
+  const title=escapeMeta(row.title+" | Vote Them Off the Road");
+  // Deliberately avoid republishing potentially unverified accusations in snippets.
+  const description=escapeMeta("New Hampshire's community jury is voting on this driving story. Vote Them Off or Give 'Em a Pass. Community opinion, not a verified violation.");
+  const image=row.image_id ?
+    '<meta property="og:image" content="'+escapeMeta(SITE_ORIGIN+"/media/"+row.image_id)+'">' +
+    '<meta name="twitter:card" content="summary_large_image">' :
+    '<meta name="twitter:card" content="summary">';
+  const meta='<meta property="og:type" content="article">' +
+    '<meta property="og:site_name" content="Vote Them Off the Road">' +
+    '<meta property="og:title" content="'+title+'">' +
+    '<meta property="og:description" content="'+description+'">' +
+    '<meta property="og:url" content="'+escapeMeta(pageUrl)+'">' +
+    '<meta name="twitter:title" content="'+title+'">' +
+    '<meta name="twitter:description" content="'+description+'">' + image;
+  const canonical='<link rel="canonical" href="'+escapeMeta(pageUrl)+'">';
+  const result=page.replace('<link rel="canonical" href="'+SITE_ORIGIN+'/nh/">',canonical)
+    .replace('</head>',meta+'</head>');
+  return new Response(result,{status:200,headers:{
+    "Content-Type":"text/html; charset=utf-8",
+    "Cache-Control":"private, no-store",
+    "X-Content-Type-Options":"nosniff"
+  }});
+}
+
 function json(data, status = 200, headers = {}) {
   return Response.json(data, { status, headers: { ...cacheHeaders, ...headers } });
 }
@@ -1212,6 +1261,8 @@ export default {
     const { pathname } = url;
     if (pathname === "/admin") return Response.redirect(SITE_ORIGIN + "/admin/", 302);
     if (pathname.startsWith("/admin/")) return adminRequest(request, env, pathname);
+    if (pathname === "/nh/" && request.method === "GET" && url.searchParams.has("incident"))
+      return serveSharedIncidentPage(request, env, url);
     if (pathname.startsWith("/media/")) {
       if (request.method !== "GET" && request.method !== "HEAD")
         return new Response("Method not allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
