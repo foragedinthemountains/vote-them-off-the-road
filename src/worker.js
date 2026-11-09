@@ -1283,6 +1283,182 @@ async function prepareWrite(request, env, action) {
   return { body };
 }
 
+
+// Incident authorship: users may post as guests, or attach to a verified Clerk
+// session when explicitly enabled. The secret guest key is accepted only in a
+// request header and is never stored in plaintext or embedded in a GET URL.
+async function publicAccountIdentity(request,env){
+  if(!(await publicAccountsReady(env)))
+    return {error:json({error:"Public accounts are not configured yet"},503)};
+  try{
+    const identity=await getPublicAccountUser(request,env);
+    return identity?{identity}:{error:json({error:"Sign in to manage your account"},401)};
+  }catch{
+    return {error:json({error:"Your sign-in session could not be verified"},401)};
+  }
+}
+async function ownerForIncident(request,env,id){
+  if(!(await ownershipSchemaReady(env)))
+    return {error:json({error:"Incident management opens after migration 0006"},503)};
+  if(!idPattern.test(id))return {error:json({error:"Not found"},404)};
+  const row=await env.DB.prepare(
+    "SELECT i.id,i.title,i.description,i.category,i.location_label,i.status,"+
+    "i.created_at,i.updated_at,o.owner_user_id,o.owner_token_hash "+
+    "FROM incident_ownership o JOIN incidents i ON i.id=o.incident_id "+
+    "WHERE i.id=?"
+  ).bind(id).first();
+  if(!row)return {error:json({error:"No ownership record exists for this incident"},404)};
+  let identity=null;
+  if(request.headers.has("Authorization")){
+    try{identity=await getPublicAccountUser(request,env);}
+    catch{return {error:json({error:"Account session invalid or expired"},401)};}
+  }
+  const tokenHash=await hashManagementToken(
+    request.headers.get("X-Incident-Manage-Key")||"");
+  const byAccount=!!(identity&&row.owner_user_id&&identity.userId===row.owner_user_id);
+  const byGuest=!!(tokenHash&&row.owner_token_hash&&tokenHash===row.owner_token_hash);
+  if(!byAccount&&!byGuest)return {error:json({error:"You don't have the management key or account for this incident"},403)};
+  delete row.owner_user_id;
+  delete row.owner_token_hash;
+  return {row,identity,method:byAccount?"account":"guest"};
+}
+async function getOwnedIncident(request,env,id){
+  const owner=await ownerForIncident(request,env,id);
+  if(owner.error)return owner.error;
+  const [result]=await attachImages([owner.row],env);
+  return json({ok:true,incident:result,owner_access:owner.method,
+    can_edit:owner.row.status!=="removed"});
+}
+async function updateOwnedIncident(request,env,id){
+  if(!isCommunityActionAllowed(request))
+    return json({error:"Invalid request origin"},403);
+  if(!(await limitJuryAction(request,env)))
+    return json({error:"Too many requests. Try again later."},429);
+  const owner=await ownerForIncident(request,env,id);
+  if(owner.error)return owner.error;
+  if(owner.row.status==="removed")
+    return json({error:"Removed incidents cannot be edited"},409);
+  const parsed=await parseBody(request);
+  if(parsed.error)return json({error:parsed.error},parsed.status);
+  const value=parsed.value;
+  if(typeof value.title!=="string"||typeof value.description!=="string"||
+     typeof value.category!=="string"||
+     !(value.location_label===null||typeof value.location_label==="string"))
+    return json({error:"Title, story, location and category are required"},400);
+  const title=value.title.trim(),description=value.description.trim();
+  const location=typeof value.location_label==="string"?value.location_label.trim():"";
+  const category=value.category;
+  if(title.length<5||title.length>160||description.length<20||
+     description.length>3000||location.length>100||
+     !Object.hasOwn(behaviorCategories,category))
+    return json({error:"Invalid title, story, location or category"},400);
+  if(owner.row.title===title&&owner.row.description===description&&
+     (owner.row.location_label||"")===location&&owner.row.category===category)
+    return json({ok:true,unchanged:true,status:owner.row.status});
+  const vt=await activeVoteTable(env);
+  const prior=await env.DB.prepare(
+    "SELECT COUNT(*) AS n FROM "+vt+" WHERE incident_id=?").bind(id).first();
+  // After anyone voted, substantive edits may reverse the meaning of previous
+  // votes. Hide until admin can review and republish; keep an audit of changes.
+  const hadVotes=Number(prior?.n||0)>0;
+  await env.DB.batch([
+    env.DB.prepare(
+      "INSERT INTO incident_author_edits "+
+      "(id,incident_id,actor_type,previous_title,previous_description,"+
+      "previous_category,previous_location_label,previous_status) "+
+      "SELECT ?,id,?,?,?,?,?,? FROM incidents WHERE id=? AND status!='removed'"
+    ).bind(crypto.randomUUID(),owner.method,owner.row.title,owner.row.description,
+      owner.row.category,owner.row.location_label,owner.row.status,id),
+    env.DB.prepare(
+      "UPDATE incidents SET title=?,description=?,category=?,location_label=?,"+
+      "status=CASE WHEN ? THEN 'hidden' ELSE status END,updated_at=unixepoch() "+
+      "WHERE id=? AND status!='removed'"
+    ).bind(title,description,category,location||null,hadVotes?1:0,id)
+  ]);
+  return json({ok:true,status:hadVotes?"hidden":owner.row.status,
+    pending_review:hadVotes,message:hadVotes?
+      "Saved. Because the case has votes, it is hidden until an administrator reviews the changes.":
+      "Your changes are saved."});
+}
+async function removeOwnedIncident(request,env,id){
+  if(!isCommunityActionAllowed(request))
+    return json({error:"Invalid request origin"},403);
+  if(!(await limitJuryAction(request,env)))
+    return json({error:"Too many requests. Try again later."},429);
+  const owner=await ownerForIncident(request,env,id);
+  if(owner.error)return owner.error;
+  await env.DB.prepare(
+    "UPDATE incidents SET status='removed',updated_at=unixepoch() "+
+    "WHERE id=? AND status!='removed'"
+  ).bind(id).run();
+  // Publicly removed immediately. We retain private moderation/audit records
+  // and R2 media pending a separate permanent-erasure policy.
+  return json({ok:true,status:"removed",
+    message:"The incident is removed from public view. Contact the administrator for permanent data erasure."});
+}
+async function claimGuestIncident(request,env,id){
+  if(!isCommunityActionAllowed(request))
+    return json({error:"Invalid request origin"},403);
+  if(!(await limitJuryAction(request,env)))
+    return json({error:"Too many requests. Try again later."},429);
+  const auth=await publicAccountIdentity(request,env);
+  if(auth.error)return auth.error;
+  if(!(await ownershipSchemaReady(env)))
+    return json({error:"Ownership management is not active"},503);
+  const tokenHash=await hashManagementToken(request.headers.get("X-Incident-Manage-Key")||"");
+  if(!tokenHash)return json({error:"A valid private management key is required"},403);
+  const changed=await env.DB.prepare(
+    "UPDATE incident_ownership SET owner_user_id=?,owner_token_hash=NULL,"+
+    "claimed_at=unixepoch() WHERE incident_id=? AND owner_user_id IS NULL "+
+    "AND owner_token_hash=?"
+  ).bind(auth.identity.userId,id,tokenHash).run();
+  if(!changed.meta?.changes)
+    return json({error:"This private management link is invalid or already claimed"},409);
+  return json({ok:true,message:"This incident now belongs to your account. The old guest management link is disabled."});
+}
+async function accountMyIncidents(request,env){
+  const auth=await publicAccountIdentity(request,env);
+  if(auth.error)return auth.error;
+  const rows=await env.DB.prepare(
+    "SELECT i.id,i.title,i.category,i.status,i.created_at,i.updated_at,"+
+    "(SELECT COUNT(*) FROM incident_media m WHERE m.incident_id=i.id) AS photos "+
+    "FROM incident_ownership o JOIN incidents i ON i.id=o.incident_id "+
+    "WHERE o.owner_user_id=? ORDER BY i.created_at DESC LIMIT 200"
+  ).bind(auth.identity.userId).all();
+  return json({ok:true,incidents:rows.results||[]});
+}
+async function accountMe(request,env){
+  const auth=await publicAccountIdentity(request,env);
+  if(auth.error)return auth.error;
+  const hash=await voterHash(request);
+  const linked=hash?await env.DB.prepare(
+    "SELECT owner_user_id FROM account_voter_links WHERE voter_key_hash=?"
+  ).bind(hash).first():null;
+  return json({ok:true,user_id:auth.identity.userId,
+    browser_linked:linked?.owner_user_id===auth.identity.userId,
+    browser_linked_elsewhere:!!linked&&linked.owner_user_id!==auth.identity.userId});
+}
+async function linkAccountBrowser(request,env){
+  if(!isCommunityActionAllowed(request))
+    return json({error:"Invalid request origin"},403);
+  if(!(await limitJuryAction(request,env)))
+    return json({error:"Too many requests. Try again later."},429);
+  const auth=await publicAccountIdentity(request,env);
+  if(auth.error)return auth.error;
+  const hash=await voterHash(request);
+  if(!hash)return json({error:"Your guest browser identity is not initialized"},428);
+  await env.DB.prepare(
+    "INSERT OR IGNORE INTO account_voter_links(owner_user_id,voter_key_hash) VALUES(?,?)"
+  ).bind(auth.identity.userId,hash).run();
+  const linked=await env.DB.prepare(
+    "SELECT owner_user_id FROM account_voter_links WHERE voter_key_hash=?"
+  ).bind(hash).first();
+  if(linked?.owner_user_id!==auth.identity.userId)
+    return json({error:"This browser's anonymous history is already linked to a different account."},409);
+  return json({ok:true,linked:true,
+    message:"This browser's guest participation history is associated with your account. Cross-device voting sync will be added separately."});
+}
+
 async function createIncident(request, env) {
   const prepared = await prepareWrite(request, env, "submit");
   if (prepared.response) return prepared.response;
@@ -1841,6 +2017,29 @@ export default {
           auto_hide_report_threshold: reportHideThreshold(env),
           category_labels: behaviorCategories,
           turnstile_site_key: enabled ? env.TURNSTILE_SITE_KEY : null }));
+      }
+      if (pathname === "/api/account/config" && request.method === "GET"){
+        const enabled=await publicAccountsReady(env);
+        return json({enabled,ownership_enabled:await ownershipSchemaReady(env),
+          publishable_key:enabled?env.CLERK_PUBLISHABLE_KEY:null});
+      }
+      if(pathname==="/api/account/me" && request.method==="GET")
+        return accountMe(request,env);
+      if(pathname==="/api/account/incidents" && request.method==="GET")
+        return accountMyIncidents(request,env);
+      if(pathname==="/api/account/link-browser" && request.method==="POST")
+        return linkAccountBrowser(request,env);
+      const ownerClaim=/^\/api\/owner\/incidents\/([a-zA-Z0-9_-]{6,80})\/claim$/.exec(pathname);
+      if(ownerClaim){
+        if(request.method==="POST")return claimGuestIncident(request,env,ownerClaim[1]);
+        return json({error:"Method not allowed"},405,{Allow:"POST"});
+      }
+      const ownerCase=/^\/api\/owner\/incidents\/([a-zA-Z0-9_-]{6,80})$/.exec(pathname);
+      if(ownerCase){
+        if(request.method==="GET")return getOwnedIncident(request,env,ownerCase[1]);
+        if(request.method==="PATCH")return updateOwnedIncident(request,env,ownerCase[1]);
+        if(request.method==="DELETE")return removeOwnedIncident(request,env,ownerCase[1]);
+        return json({error:"Method not allowed"},405,{Allow:"GET, PATCH, DELETE"});
       }
       if (pathname === "/api/featured-case" && request.method === "GET")
         return withVoterCookie(request,await featuredCase(request,env));
