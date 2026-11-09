@@ -504,6 +504,9 @@ async function juryStreakSave(request,env) {
 async function getBattle(request,env) {
   if (!(await gameSchemaReady(env)) || !(await featureSchemaReady(env)))
     return json({ready:false,message:"Head-to-head battles open after the database migration."});
+  const category=new URL(request.url).searchParams.get("category")||"";
+  if(category && !Object.hasOwn(behaviorCategories,category))
+    return json({error:"Unknown head-to-head category"},400);
   const voter=await voterHash(request);
   if(!voter)return json({ready:false,message:"Reload the page to activate your jury ID."});
   const start=currentWeekStart(),end=nextEasternWeekStart();
@@ -513,18 +516,24 @@ async function getBattle(request,env) {
     "WHERE a.state_code='NH' AND b.state_code='NH' " +
     "AND a.status='published' AND b.status='published' " +
     "AND a.created_at>=? AND a.created_at<? AND b.created_at>=? AND b.created_at<? " +
+    (category ? "AND a.category=? " : "") +
     "AND NOT EXISTS (SELECT 1 FROM battle_votes bv WHERE bv.left_id=a.id AND bv.right_id=b.id " +
     "AND bv.voter_key_hash=?) ORDER BY RANDOM() LIMIT 1"
-  ).bind(start,end,start,end,voter).first();
+  ).bind(start,end,start,end,...(category?[category]:[]),voter).first();
   if(!match) {
     const candidates=await env.DB.prepare(
       "SELECT category FROM incidents WHERE state_code='NH' AND status='published' " +
-      "AND created_at>=? AND created_at<? GROUP BY category HAVING COUNT(*)>=2 LIMIT 1"
-    ).bind(start,end).first();
+      "AND created_at>=? AND created_at<? " +
+      (category ? "AND category=? " : "") +
+      "GROUP BY category HAVING COUNT(*)>=2 LIMIT 1"
+    ).bind(start,end,...(category?[category]:[])).first();
     return json({ready:true,pair:null,
       message:candidates ?
-        "You've judged all available same-category matchups this week. New cases will create new matchups." :
-        "Head-to-head opens when at least two cases in the same category are submitted this week. A Funny / Unexpected case won't be matched against a different category."});
+        "You've judged all available "+(category ? behaviorCategories[category]+" " : "")+
+        "same-category matchups this week. New cases will create new matchups." :
+        (category ? "Head-to-head needs two "+behaviorCategories[category]+
+          " cases published during the same Eastern contest week." :
+          "Head-to-head needs two cases in the same category, both posted this week. Funny and Other cases can't be paired.")});
   }
   const rows=await env.DB.prepare(
     "SELECT id,title,description,category,location_label FROM incidents " +
