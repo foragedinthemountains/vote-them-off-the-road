@@ -205,15 +205,17 @@ async function rewardJuryAction(env,voter,action){
   if(!(await xpSchemaReady(env)))return;
   try{
     const day=easternDateKey();
+    let meaningful=false;
     if(action.type==="vote"){
-      await awardJuryXP(env,voter,"vote:"+action.incidentId,"vote",10,day);
+      meaningful=await awardJuryXP(env,voter,"vote:"+action.incidentId,"vote",10,day);
       await awardJuryDutyXP(env,voter,day);
     }else if(action.type==="battle"){
-      await awardLimitedDailyXP(env,voter,"battle:"+action.pair,"battle",5,3,day);
+      meaningful=await awardLimitedDailyXP(env,voter,"battle:"+action.pair,"battle",5,3,day);
     }else if(action.type==="caught_up"){
-      await awardJuryXP(env,voter,"caught-up:"+day,"caught_up",5,day);
+      meaningful=await awardJuryXP(env,voter,"caught-up:"+day,"caught_up",5,day);
     }
-    await awardReturningJurorXP(env,voter,day);
+    // Editing an existing vote isn't a new action and cannot farm the return bonus.
+    if(meaningful)await awardReturningJurorXP(env,voter,day);
   }catch(error){
     // A transient XP outage must not invalidate a legitimate recorded vote.
     console.error("Jury XP awarding error",error?.message||"unknown");
@@ -390,8 +392,10 @@ async function castVerdictGuess(request,env){
   if(!saved.meta?.changes)return json({error:"You already guessed this case. Try another."},409);
   let earned=0;
   try{
-    if(await awardLimitedDailyXP(env,voter,"guess:"+id,"verdict_guess",5,2,day))earned+=5;
-    if(correct&&totals.off+totals.pass+totals.funny>=2 &&
+    const participationAward=await awardLimitedDailyXP(
+      env,voter,"guess:"+id,"verdict_guess",5,2,day);
+    if(participationAward)earned+=5;
+    if(participationAward&&correct&&totals.off+totals.pass+totals.funny>=2 &&
       await awardLimitedDailyXP(env,voter,"correct:"+id,"verdict_correct",5,2,day))
       earned+=5;
     await awardReturningJurorXP(env,voter,day);
