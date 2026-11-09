@@ -41,7 +41,7 @@ async function serveImage(id, env) {
   if (!photoTypes.has(type)) return new Response("Not found", { status: 404 });
   return new Response(object.body, { headers: {
     "Content-Type": type, "Content-Length": String(object.size),
-    "Cache-Control": "public, max-age=60", "X-Content-Type-Options": "nosniff",
+    "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff",
     "Cross-Origin-Resource-Policy": "same-origin"
   } });
 }
