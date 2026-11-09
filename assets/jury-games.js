@@ -4,6 +4,7 @@
   const battleStatus=document.querySelector("#battle-status");
   const battleOptions=document.querySelector("#battle-options");
   const battleNext=document.querySelector("#battle-next");
+  const categorySelect=document.querySelector("#feed-category");
   const predictionStatus=document.querySelector("#prediction-status");
   const predictionOptions=document.querySelector("#prediction-options");
   const predictionHistory=document.querySelector("#prediction-history");
@@ -25,7 +26,9 @@
     battleNext.hidden=true;
     battleStatus.textContent="Looking for two cases in the same category this week…";
     try{
-      const result=await requestJSON("/api/jury/battle");
+      const selectedCategory=categorySelect?.value||"";
+      const result=await requestJSON("/api/jury/battle"+
+        (selectedCategory?"?category="+encodeURIComponent(selectedCategory):""));
       if(!result.ready||!result.pair){
         battleStatus.textContent=result.message||"More same-category cases are needed for head-to-head voting.";
         battleNext.textContent="Check for new matchups ↻";
@@ -133,6 +136,7 @@
     }
   }
   if(battleNext)battleNext.addEventListener("click",loadBattle);
+  window.addEventListener("vtor:category-change",loadBattle);
   loadBattle();
   loadPrediction();
 })();
