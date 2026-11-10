@@ -37,8 +37,14 @@
       loggedIn.hidden=true;incidentPanel.hidden=true;historyPanel.hidden=true;
       signIn.hidden=false;
       const callbackStatus=new URLSearchParams(location.search).get("auth");
+      const reason=new URLSearchParams(location.search).get("reason");
+      const safeReasons=new Set(["configuration","workos_authorization",
+        "callback_parameters","missing_flow_cookie","oauth_state",
+        "exchange_network","exchange_rejected","token_validation","session_cookie"]);
       status.textContent=callbackStatus==="failed"?
-        "Sign-in didn't finish. Please try again. If it keeps failing, check the WorkOS Production redirect and Cloudflare secrets.":
+        "Sign-in didn't finish. Diagnostic: "+
+        (safeReasons.has(reason)?reason:"unknown")+
+        ". Please report this code to the site administrator.":
         accounts.state.error?
           "Sign-in service is temporarily unavailable. Guest posting and voting still work.":
           "Sign in or create a free account. You're also welcome to use the site as a guest.";
