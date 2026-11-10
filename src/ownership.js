@@ -77,20 +77,28 @@ async function verifiedWorkosSubject(token,clientId){
   const issuer=String(claims.iss||"").replace(/\/$/,"");
   const issuerAllowed=issuer===WORKOS_ISSUER ||
     issuer===WORKOS_ISSUER+"/user_management/"+clientId;
+  // Keep each original security check, but throw fixed reason codes so a
+  // failed login can be diagnosed without exposing tokens or user details.
   if(header.alg!=="RS256" || typeof header.kid!=="string" ||
-     (header.typ && !["JWT","at+jwt","application/at+jwt"].includes(header.typ)) ||
-     !issuerAllowed ||
-     claims.client_id!==clientId ||
-     typeof claims.sub!=="string" ||
-     !/^user_[A-Za-z0-9]{8,128}$/.test(claims.sub) ||
-     typeof claims.sid!=="string" ||
-     !/^session_[A-Za-z0-9]{8,128}$/.test(claims.sid) ||
-     !Number.isSafeInteger(claims.exp) || claims.exp<=now-30 ||
+     (header.typ && !["JWT","at+jwt","application/at+jwt"].includes(header.typ)))
+    throw Error("WorkOS token header rejected");
+  if(!issuerAllowed)
+    throw Error("WorkOS token issuer rejected");
+  if(claims.client_id!==clientId)
+    throw Error("WorkOS token client rejected");
+  if(typeof claims.sub!=="string" ||
+     !/^user_[A-Za-z0-9]{8,128}$/.test(claims.sub))
+    throw Error("WorkOS token subject rejected");
+  if(typeof claims.sid!=="string" ||
+     !/^session_[A-Za-z0-9]{8,128}$/.test(claims.sid))
+    throw Error("WorkOS token session rejected");
+  if(!Number.isSafeInteger(claims.exp) || claims.exp<=now-30 ||
      !Number.isSafeInteger(claims.iat) || claims.iat>now+30 ||
      (claims.nbf!==undefined &&
-       (!Number.isSafeInteger(claims.nbf)||claims.nbf>now+30)) ||
-     claims.act!==undefined)
-    throw Error("Authentication token claims rejected");
+       (!Number.isSafeInteger(claims.nbf)||claims.nbf>now+30)))
+    throw Error("WorkOS token time rejected");
+  if(claims.act!==undefined)
+    throw Error("WorkOS token impersonation rejected");
   let keys=await getWorkosKeys(clientId);
   let jwk=keys.find(k=>k.kid===header.kid);
   if(!jwk){
