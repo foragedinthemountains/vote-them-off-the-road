@@ -21,11 +21,23 @@ function validKeyString(env) {
   return typeof env.WORKOS_SESSION_KEY === "string" &&
     /^[0-9a-fA-F]{64}$/.test(env.WORKOS_SESSION_KEY);
 }
+function validWorkosApiKey(env) {
+  // WorkOS guarantees a sk_ prefix; its remaining shape is not restricted
+  // to the sk_live_/sk_test_ examples used in some integrations.
+  return typeof env.WORKOS_API_KEY === "string" &&
+    /^sk_[A-Za-z0-9_-]{10,}$/.test(env.WORKOS_API_KEY);
+}
+export async function authReadiness(env) {
+  const checks = {
+    client_id_valid: Boolean(safeClientId(env)),
+    session_key_valid: validKeyString(env),
+    workos_api_key_valid: validWorkosApiKey(env),
+    ownership_schema_ready: await ownershipSchemaReady(env)
+  };
+  return {enabled:Object.values(checks).every(Boolean),checks};
+}
 export async function authConfigReady(env) {
-  return Boolean(safeClientId(env) && validKeyString(env) &&
-    typeof env.WORKOS_API_KEY === "string" &&
-    /^sk_(live|test)_[A-Za-z0-9_-]{10,}$/.test(env.WORKOS_API_KEY) &&
-    await ownershipSchemaReady(env));
+  return (await authReadiness(env)).enabled;
 }
 function randomB64(bytesCount=32) {
   const bytes = crypto.getRandomValues(new Uint8Array(bytesCount));
