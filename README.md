@@ -302,6 +302,13 @@ XP is tracked by anonymous hashed browser identifier, not verified people. Switc
 
 **Cost:** WorkOS AuthKit currently advertises 1 million monthly active users free, then $2,500/month per additional million MAUs. Use the default WorkOS hosted AuthKit domain (no paid custom domain) and ordinary email/social login. Cloudflare Workers/D1/R2 usage is billed separately. Free tiers and prices can change; `public_members` separates site user identity from the provider for future migration.
 
+### Historical setup notes (superseded by Phase 6B below)
+
+**Do not use the old browser-only WorkOS activation steps below.** The
+Production implementation now requires a WorkOS API key and an AES session
+key as Cloudflare secrets. Follow the current **Phase 6B: Production WorkOS
+AuthKit, Worker-managed sessions** section at the end of this README.
+
 ### Deferred activation steps (site owner at computer)
 
 1. Wait until the GitHub-connected Cloudflare Worker deployment containing the WorkOS conversion is **Ready**. Do not run migrations against stale Worker builds. Do not paste secret API keys into GitHub or chats.
@@ -315,7 +322,7 @@ XP is tracked by anonymous hashed browser identifier, not verified people. Switc
    ```
    After up to 30s, `https://votethemofftheroad.com/api/account/config` should return `ownership_enabled:true,enabled:false`. New guest posts will receive an **unrecoverable private management link**; guests can edit/withdraw without registering.
 4. Create a **WorkOS** organization/application at <https://dashboard.workos.com>. Under WorkOS AuthKit / User Management, choose email and Google sign-in as desired. In WorkOS application settings, add **redirect URI** `https://votethemofftheroad.com/nh/account/`, **allowed origin** `https://votethemofftheroad.com`, and the same safe login landing page as its initiate-login URI if prompted. For logout return URLs, allow `https://votethemofftheroad.com/nh/account/`. Use the **default hosted AuthKit domain** to avoid custom-domain fees.
-5. Copy WorkOS **Client ID** (format `client_...`). In Cloudflare Workers & Pages, add it as a public Worker **variable** named `WORKOS_CLIENT_ID`. No `WORKOS_API_KEY` is needed for this browser-SDK + verified JWT integration. Do not configure any settings for the previous authentication provider. The JWT verification uses WorkOS's published JWKS and checks `iss`, `client_id`, `sub`, `sid`, `iat`, `exp`, and signature.
+5. Copy WorkOS **Client ID** (format `client_...`). In Cloudflare Workers & Pages, add it as a public Worker **variable** named `WORKOS_CLIENT_ID`. **Superseded:** WorkOS browser-SDK mode no longer ships; follow Phase 6B for required private Worker secrets. Do not configure any settings for the previous authentication provider. The JWT verification uses WorkOS's published JWKS and checks `iss`, `client_id`, `sub`, `sid`, `iat`, `exp`, and signature.
 6. Deploy/save, allow up to 30s, and verify `/api/account/config` now reports `enabled:true,provider:"workos",client_id:"client_..."`. Visit `/nh/account/`, sign up, sign out/in, then create, edit, claim, and withdraw test cases. Test from a second unrelated browser; an incident ID alone must never allow author management.
 
 ### Implementation details
