@@ -19,7 +19,6 @@
       "/admin",
       "/admin/*",
       "/nh/",
-      "/nh/account/",
       "/nh/account/*"
     ]
   },
