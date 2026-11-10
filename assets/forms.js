@@ -13,6 +13,39 @@
   const photoUpload = document.querySelector("#photo-upload");
   const photoPreview = document.querySelector("#photo-preview");
   const photoHelp = document.querySelector("#photo-help");
+  const postingMode=document.querySelector("#posting-mode");
+  const postingStatus=document.querySelector("#posting-mode-status");
+  const postAsGuest=document.querySelector("#post-as-guest");
+  const postingGuestOption=document.querySelector("#posting-guest-option");
+  async function updatePostingMode(){
+    if(mode!=="submit" || !postingMode || !postingStatus)return;
+    postingMode.hidden=false;
+    postingStatus.textContent="Checking how your story will be saved…";
+    try{
+      await window.VTORAccounts?.ready;
+      const account=window.VTORAccounts;
+      const user=account?.state.enabled && account.getUser();
+      if(user){
+        postingGuestOption.hidden=false;
+        const label=user.email||"your account";
+        const refresh=()=>{
+          postingStatus.textContent=postAsGuest.checked?
+            "Posting as a guest. Save the private management link afterward.":
+            "Posting to your account ("+label+").";
+        };
+        postAsGuest.addEventListener("change",refresh);
+        refresh();
+      }else{
+        if(postingGuestOption)postingGuestOption.hidden=true;
+        postingStatus.textContent=
+          "Posting as a guest. Save the private management link afterward.";
+      }
+    }catch{
+      if(postingGuestOption)postingGuestOption.hidden=true;
+      postingStatus.textContent=
+        "Posting as a guest. Save the private management link afterward.";
+    }
+  }
   const maxPhotos = 5;
   const maxImageBytes = 5 * 1024 * 1024;
   function showPhotos() {
@@ -135,6 +168,7 @@
             }
           });
           form.hidden = false;
+          if(mode==="submit")updatePostingMode();
           message("Ready when you are.");
         } catch {
           message("Verification could not load. Refresh and try again.");
@@ -254,7 +288,8 @@
       if(!isMultipart)postHeaders.set("Content-Type","application/json");
       // Public accounts are OPTIONAL; without a signed-in WorkOS session this
       // remains the existing anonymous Turnstile-protected submission flow.
-      const accountToken=await window.VTORAccounts?.getToken();
+      const isGuestPost=mode!=="submit" || postAsGuest?.checked===true;
+      const accountToken=isGuestPost?null:await window.VTORAccounts?.getToken();
       if(accountToken)postHeaders.set("Authorization","Bearer "+accountToken);
       const response = await fetch(endpoint, {
         method: "POST",credentials:"same-origin",
