@@ -71,9 +71,15 @@ async function verifiedWorkosSubject(token,clientId){
   const now=Math.floor(Date.now()/1000);
   // WorkOS session JWTs use the configured client_id claim.
   // Only the exact WorkOS project we configured may issue member sessions.
+  // WorkOS has issued both a base issuer and a client-scoped issuer.
+  // Both are accepted only for our configured client, signed by its JWKS.
+  // The client-specific value is documented for newer user-management tokens.
+  const issuer=String(claims.iss||"").replace(/\/$/,"");
+  const issuerAllowed=issuer===WORKOS_ISSUER ||
+    issuer===WORKOS_ISSUER+"/user_management/"+clientId;
   if(header.alg!=="RS256" || typeof header.kid!=="string" ||
      (header.typ && header.typ!=="JWT") ||
-     String(claims.iss||"").replace(/\/$/,"")!==WORKOS_ISSUER ||
+     !issuerAllowed ||
      claims.client_id!==clientId ||
      typeof claims.sub!=="string" ||
      !/^user_[A-Za-z0-9]{8,128}$/.test(claims.sub) ||
