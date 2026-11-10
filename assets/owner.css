@@ -27,3 +27,7 @@
 #account-user{margin:12px 0}
 #owner-status,#account-status{font-weight:700}
 @media(max-width:650px){.owner-layout{gap:15px}.owner-panel{padding:17px}}
+
+.owner-case-actions{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.owner-case-actions .btn{font-size:13px}
+#guest-import-form button{margin-top:12px}
