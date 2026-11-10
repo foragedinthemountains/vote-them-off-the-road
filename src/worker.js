@@ -612,9 +612,10 @@ async function weeklyBoard(env,offset=0) {
     "SELECT category,COUNT(*) AS incidents FROM incidents " +
     "WHERE state_code='NH' AND status='published' GROUP BY category ORDER BY incidents DESC"
   ).all();
+  const podiumWithImages=await attachImages(podiums,env);
   return json({ready:true,week_start:start,week_end:end,minimum_votes:minimum,
-    archived,history_offset:offset,podiums,
-    leaders:podiums.filter(row=>row.rank===1),
+    archived,history_offset:offset,podiums:podiumWithImages,
+    leaders:podiumWithImages.filter(row=>row.rank===1),
     categories:behaviorCategories,category_counts:counts.results||[],
     scoring:"1 Off vote = 1 point; 1 distinct-browser matchup win = 1 point"});
 }
@@ -656,8 +657,9 @@ async function funniestWeekBoard(env,offset=0,category="") {
     }
   }
   if(!archived)podiums=await weeklyAwardCandidates(env,start,end,"funny",false,category);
+  const podiumWithImages=await attachImages(podiums,env);
   return json({ready:true,week_start:start,week_end:end,minimum_votes:minimum,
-    archived,history_offset:offset,category,podiums,
+    archived,history_offset:offset,category,podiums:podiumWithImages,
     scoring:"1 Funny reaction = 1 point; 1 unique-browser funny-category duel win = 1 point"});
 }
 
@@ -2010,6 +2012,18 @@ async function adminRequest(request, env, pathname) {
       }
     });
   }
+  if (pathname.startsWith("/admin/media/")) {
+    if (request.method !== "GET" && request.method !== "HEAD")
+      return new Response("Method not allowed",{status:405,headers:{Allow:"GET, HEAD"}});
+    try {
+      const image=await serveImage(pathname.slice("/admin/media/".length),env,true);
+      return request.method==="HEAD"?
+        new Response(null,{status:image.status,headers:image.headers}):image;
+    } catch(error) {
+      console.error("Admin image fetch failed",error?.name||"unknown");
+      return new Response("Temporarily unavailable",{status:503});
+    }
+  }
   if (pathname.startsWith("/admin/api/")) {
     try { return await adminApi(request, env, pathname, identity); }
     catch (error) {
@@ -2057,6 +2071,25 @@ export default {
         ? await serveSharedIncidentPage(request,env,url)
         : await env.ASSETS.fetch(request);
       return withVoterCookie(request,page);
+    }
+    const ownerMedia=/^\/api\/owner\/media\/([A-Za-z0-9_-]{6,80})$/.exec(pathname);
+    if(ownerMedia) {
+      if (request.method!=="GET" && request.method!=="HEAD")
+        return new Response("Method not allowed",{status:405,headers:{Allow:"GET, HEAD"}});
+      try {
+        const media=await env.DB.prepare(
+          "SELECT incident_id FROM incident_media WHERE id=? AND media_type='image'"
+        ).bind(ownerMedia[1]).first();
+        if (!media) return new Response("Not found",{status:404});
+        const owner=await ownerForIncident(request,env,media.incident_id);
+        if (owner.error) return owner.error;
+        const image=await serveImage(ownerMedia[1],env,true);
+        return request.method==="HEAD"?
+          new Response(null,{status:image.status,headers:image.headers}):image;
+      } catch(error) {
+        console.error("Owner image fetch failed",error?.name||"unknown");
+        return new Response("Temporarily unavailable",{status:503});
+      }
     }
     if (pathname.startsWith("/media/")) {
       if (request.method !== "GET" && request.method !== "HEAD")
