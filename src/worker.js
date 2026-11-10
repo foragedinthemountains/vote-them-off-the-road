@@ -247,7 +247,7 @@ async function settleWeeklyPredictionXP(env,voter){
 async function juryXPOverview(request,env){
   const ready=await xpSchemaReady(env);
   const day=easternGameDay();
-  const voter=await voterHash(request);
+  const voter=await juryVoterHash(request,env);
   if(!ready||!voter)return json({ready:false,
     message:ready?"Refresh to start your anonymous Jury XP profile":
       "Jury XP launches after database migration 0005.",ranks:XP_LEVELS});
@@ -331,7 +331,7 @@ async function juryXPOverview(request,env){
 async function getVerdictGuess(request,env){
   if(!(await xpSchemaReady(env)))return json({
     ready:false,message:"Guess the Verdict opens after migration 0005."});
-  const voter=await voterHash(request);
+  const voter=await juryVoterHash(request,env);
   if(!voter)return json({ready:false,message:"Reload to start your anonymous Jury XP profile."});
   const category=new URL(request.url).searchParams.get("category")||"";
   if(category && !Object.hasOwn(behaviorCategories,category))
@@ -359,7 +359,7 @@ async function getVerdictGuess(request,env){
 async function castVerdictGuess(request,env){
   if(!(await xpSchemaReady(env)))return json({error:"Verdict guessing is not active yet"},503);
   if(!isCommunityActionAllowed(request))return json({error:"Invalid request origin"},403);
-  const voter=await voterHash(request);
+  const voter=await juryVoterHash(request,env);
   if(!voter)return json({error:"Refresh the page to establish your jury ID"},428);
   const parsed=await parseBody(request);
   if(parsed.error)return json({error:parsed.error},parsed.status);
@@ -415,7 +415,7 @@ async function castVerdictGuess(request,env){
 async function myParticipation(request, env) {
   const time = easternGameDay();
   const ready = await gameSchemaReady(env);
-  const hash = await voterHash(request);
+  const hash = await juryVoterHash(request,env);
   const empty = { votes:0, recent_votes:0, today_votes:0, streak_days:0,
     daily_target:0, available_cases:0, duty_complete:false,
     can_check_in:false, badge:"New juror",next_badge_at:3,
@@ -731,7 +731,7 @@ async function juryCheckin(request,env) {
   const vt=await activeVoteTable(env);
   if (!(await gameSchemaReady(env))) return json({error:"The jury game migration is not active yet."},503);
   if (!isCommunityActionAllowed(request)) return json({error:"Invalid request origin"},403);
-  const voter=await voterHash(request);
+  const voter=await juryVoterHash(request,env);
   if (!voter) return json({error:"Reload the jury board to establish your browser ID"},428);
   if (!(await limitJuryAction(request,env))) return json({error:"Too many actions. Try later."},429);
   const remaining=await env.DB.prepare(
@@ -754,7 +754,7 @@ async function juryStreakSave(request,env) {
   const vt=await activeVoteTable(env);
   if (!(await gameSchemaReady(env))) return json({error:"Streak recovery is not yet available"},503);
   if (!isCommunityActionAllowed(request)) return json({error:"Invalid request origin"},403);
-  const voter=await voterHash(request);
+  const voter=await juryVoterHash(request,env);
   if(!voter)return json({error:"Reload the page first"},428);
   if(!(await limitJuryAction(request,env)))return json({error:"Too many requests. Try again shortly."},429);
   const today=easternDateKey();
@@ -794,7 +794,7 @@ async function getBattle(request,env) {
   const category=new URL(request.url).searchParams.get("category")||"";
   if(category && !Object.hasOwn(behaviorCategories,category))
     return json({error:"Unknown head-to-head category"},400);
-  const voter=await voterHash(request);
+  const voter=await juryVoterHash(request,env);
   if(!voter)return json({ready:false,message:"Reload the page to activate your jury ID."});
   const start=currentWeekStart(),end=nextEasternWeekStart();
   const match=await env.DB.prepare(
@@ -843,7 +843,7 @@ async function castBattleVote(request,env) {
   if (!(await gameSchemaReady(env)) || !(await featureSchemaReady(env)))
     return json({error:"Battles are not active yet"},503);
   if(!isCommunityActionAllowed(request))return json({error:"Invalid request origin"},403);
-  const voter=await voterHash(request);
+  const voter=await juryVoterHash(request,env);
   if(!voter)return json({error:"Refresh the page first"},428);
   const body=await parseBody(request);
   if(body.error)return json({error:body.error},body.status);
@@ -881,7 +881,7 @@ async function castBattleVote(request,env) {
 async function juryPrediction(request,env) {
   if (!(await gameSchemaReady(env)) || !(await featureSchemaReady(env)))
     return json({ready:false,message:"Predictions open after the game database migration."});
-  const voter=await voterHash(request);
+  const voter=await juryVoterHash(request,env);
   if (!voter)return json({ready:false,message:"Reload the site to establish your jury ID."});
   const nextStart=nextEasternWeekStart();
   const previous=easternMidnight(easternWeekKey(1));
@@ -918,7 +918,7 @@ async function juryPrediction(request,env) {
 async function saveJuryPrediction(request,env) {
   if (!(await gameSchemaReady(env)))return json({error:"Predictions are not active yet"},503);
   if(!isCommunityActionAllowed(request))return json({error:"Invalid request origin"},403);
-  const voter=await voterHash(request);
+  const voter=await juryVoterHash(request,env);
   if(!voter)return json({error:"Reload the site first"},428);
   const parsed=await parseBody(request);
   if(parsed.error)return json({error:parsed.error},parsed.status);
@@ -1066,9 +1066,31 @@ async function voterHash(request) {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(id));
   return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("");
 }
+async function accountJuryKey(userId) {
+  // Account keys are deterministic per internal member and cannot be
+  // selected or forged by setting the anonymous voter cookie.
+  const bytes=await crypto.subtle.digest("SHA-256",
+    new TextEncoder().encode("vtor-jury-account-v1:"+userId));
+  return [...new Uint8Array(bytes)]
+    .map(byte=>byte.toString(16).padStart(2,"0")).join("");
+}
+class JuryAuthError extends Error {
+  constructor(){super("Your sign-in expired. Please sign in again.");}
+}
+async function juryVoterHash(request,env) {
+  if(request.headers.has("Authorization")){
+    try{
+      const identity=await getPublicAccountUser(request,env);
+      if(!identity?.userId)throw new JuryAuthError();
+      return accountJuryKey(identity.userId);
+    }catch{throw new JuryAuthError();}
+  }
+  return voterHash(request);
+}
+
 async function attachMyVotes(rows, request, env) {
   const vt=await activeVoteTable(env);
-  const hash = await voterHash(request);
+  const hash = await juryVoterHash(request,env);
   if (!rows.length || !hash) return rows.map(row => ({ ...row, my_vote: null }));
   const placeholders = rows.map(() => "?").join(",");
   const result = await env.DB.prepare(
@@ -1088,7 +1110,7 @@ async function voteIncident(id, request, env) {
   if (fetchSite && fetchSite !== "same-origin") {
     return json({ error: "Request not allowed" }, 403);
   }
-  const hash = await voterHash(request);
+  const hash = await juryVoterHash(request,env);
   if (!hash) return json({ error: "Refresh the incident feed to initialize voting" }, 428);
   const parsed = await parseBody(request);
   if (parsed.error) return json({ error: parsed.error }, parsed.status);
@@ -1164,7 +1186,7 @@ async function listIncidents(url, env, request) {
   const ready=await featureSchemaReady(env);
   const columns=ready?summaryColumnsWithCategory:summaryColumns;
   if(category&&!ready)return json({error:"Categories are not active yet"},503);
-  const voter=sort==="unvoted"?await voterHash(request):null;
+  const voter=sort==="unvoted"?await juryVoterHash(request,env):null;
   const order=(sort==="top"||sort==="week")?
     "off_votes DESC, i.created_at DESC":"i.created_at DESC";
   let filter="WHERE i.state_code = ? AND i.status = 'published'";
@@ -1437,10 +1459,11 @@ async function accountXP(request,env){
   const [total,browsers]=await Promise.all([
     env.DB.prepare(
       "SELECT COALESCE(SUM(xp),0) AS xp FROM ("+
-      "SELECT MAX(e.xp) AS xp FROM account_voter_links l "+
-      "JOIN jury_xp_events e ON e.voter_key_hash=l.voter_key_hash "+
-      "WHERE l.owner_user_id=? GROUP BY e.event_key)"
-    ).bind(auth.identity.userId).first(),
+      "SELECT MAX(e.xp) AS xp FROM jury_xp_events e "+
+      "WHERE e.voter_key_hash=? OR e.voter_key_hash IN "+
+      "(SELECT l.voter_key_hash FROM account_voter_links l WHERE l.owner_user_id=?) "+
+      "GROUP BY e.event_key)"
+    ).bind(await accountJuryKey(auth.identity.userId),auth.identity.userId).first(),
     env.DB.prepare(
       "SELECT COUNT(*) AS n FROM account_voter_links WHERE owner_user_id=?"
     ).bind(auth.identity.userId).first()
@@ -1484,16 +1507,56 @@ async function linkAccountBrowser(request,env){
   if(auth.error)return auth.error;
   const hash=await voterHash(request);
   if(!hash)return json({error:"Your guest browser identity is not initialized"},428);
-  await env.DB.prepare(
-    "INSERT OR IGNORE INTO account_voter_links(owner_user_id,voter_key_hash) VALUES(?,?)"
-  ).bind(auth.identity.userId,hash).run();
+  const account=auth.identity.userId;
+  const canonical=await accountJuryKey(account);
+  // Never migrate activity from a browser previously linked to someone else.
+  // D1 batch below is transactional and its statements also check ownership,
+  // protecting against concurrent link requests from two different accounts.
+  const existing=await env.DB.prepare(
+    "SELECT owner_user_id FROM account_voter_links WHERE voter_key_hash=?"
+  ).bind(hash).first();
+  if(existing && existing.owner_user_id!==account)
+    return json({error:"This browser's guest history belongs to another account."},409);
+  if(hash===canonical)return json({ok:true,linked:true,merged:true});
+  const stmts=[env.DB.prepare(
+    "INSERT OR IGNORE INTO account_voter_links(owner_user_id,voter_key_hash) "+
+    "SELECT ?,? WHERE NOT EXISTS(SELECT 1 FROM account_voter_links "+
+    "WHERE voter_key_hash=? AND owner_user_id<>?)"
+  ).bind(account,hash,hash,account)];
+  // These are the ONLY tables that store independent browser-keyed jury
+  // activity. Prefer the existing account row on conflicts, then remove
+  // duplicates, keeping one vote/guess/duel/prediction per account.
+  const sources=[
+    ["votes",["incident_id","voter_key_hash","choice","created_at"]],
+    ["votes_v4",["incident_id","voter_key_hash","choice","created_at"]],
+    ["jury_xp_events",["voter_key_hash","event_key","kind","xp","eastern_day","created_at"]],
+    ["jury_verdict_guesses",["incident_id","voter_key_hash","guess","result_choice",
+      "was_correct","off_votes","pass_votes","funny_votes","eastern_day","created_at"]],
+    ["jury_daily_checkins",["voter_key_hash","eastern_day","created_at"]],
+    ["jury_streak_saves",["voter_key_hash","eastern_month","saved_day","created_at"]],
+    ["battle_votes",["left_id","right_id","voter_key_hash","winner_id","created_at"]],
+    ["weekly_predictions",["week_start","voter_key_hash","predicted_category","created_at"]]
+  ];
+  const authGuard="EXISTS(SELECT 1 FROM account_voter_links "+
+    "WHERE owner_user_id=? AND voter_key_hash=?)";
+  for(const [table,cols] of sources){
+    const projected=cols.map(c=>c==="voter_key_hash"?"?":c).join(",");
+    stmts.push(env.DB.prepare(
+      "INSERT OR IGNORE INTO "+table+" ("+cols.join(",")+") "+
+      "SELECT "+projected+" FROM "+table+" WHERE voter_key_hash=? AND "+authGuard
+    ).bind(canonical,hash,account,hash));
+    stmts.push(env.DB.prepare(
+      "DELETE FROM "+table+" WHERE voter_key_hash=? AND "+authGuard
+    ).bind(hash,account,hash));
+  }
+  await env.DB.batch(stmts);
   const linked=await env.DB.prepare(
     "SELECT owner_user_id FROM account_voter_links WHERE voter_key_hash=?"
   ).bind(hash).first();
-  if(linked?.owner_user_id!==auth.identity.userId)
-    return json({error:"This browser's anonymous history is already linked to a different account."},409);
-  return json({ok:true,linked:true,
-    message:"This browser's guest participation history is associated with your account. Cross-device voting sync will be added separately."});
+  if(linked?.owner_user_id!==account)
+    return json({error:"This browser's guest history belongs to another account."},409);
+  return json({ok:true,linked:true,merged:true,
+    message:"Your guest votes, games, streaks and XP are now part of your account."});
 }
 
 async function createIncident(request, env) {
@@ -2207,6 +2270,8 @@ export default {
       }
       return json({ error: "Not found" }, 404);
     } catch (error) {
+      if(error instanceof JuryAuthError)
+        return json({error:error.message},401);
       console.error("API request failed", error);
       return json({ error: "Service temporarily unavailable" }, 503);
     }
