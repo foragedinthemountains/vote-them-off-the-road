@@ -72,7 +72,12 @@
     // the same juror across devices; refresh credentials remain HttpOnly.
     await ready;
     const send=async(force=false)=>{
-      const access=state.enabled?await session(force):null;
+      const access=state.enabled?await session(force).catch(error=>{
+        // A temporary auth outage must not block guest voting. But if the
+        // user was known signed in, never silently cast their vote as guest.
+        if(state.user)throw error;
+        return null;
+      }):null;
       const headers=new Headers(options.headers||{});
       if(access)headers.set("Authorization","Bearer "+access);
       else headers.delete("Authorization");
