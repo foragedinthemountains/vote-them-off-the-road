@@ -612,9 +612,10 @@ async function weeklyBoard(env,offset=0) {
     "SELECT category,COUNT(*) AS incidents FROM incidents " +
     "WHERE state_code='NH' AND status='published' GROUP BY category ORDER BY incidents DESC"
   ).all();
+  const podiumWithImages=await attachImages(podiums,env);
   return json({ready:true,week_start:start,week_end:end,minimum_votes:minimum,
-    archived,history_offset:offset,podiums,
-    leaders:podiums.filter(row=>row.rank===1),
+    archived,history_offset:offset,podiums:podiumWithImages,
+    leaders:podiumWithImages.filter(row=>row.rank===1),
     categories:behaviorCategories,category_counts:counts.results||[],
     scoring:"1 Off vote = 1 point; 1 distinct-browser matchup win = 1 point"});
 }
@@ -656,8 +657,9 @@ async function funniestWeekBoard(env,offset=0,category="") {
     }
   }
   if(!archived)podiums=await weeklyAwardCandidates(env,start,end,"funny",false,category);
+  const podiumWithImages=await attachImages(podiums,env);
   return json({ready:true,week_start:start,week_end:end,minimum_votes:minimum,
-    archived,history_offset:offset,category,podiums,
+    archived,history_offset:offset,category,podiums:podiumWithImages,
     scoring:"1 Funny reaction = 1 point; 1 unique-browser funny-category duel win = 1 point"});
 }
 
@@ -944,23 +946,29 @@ function imageSignatureIsValid(bytes, type) {
   if (type === "image/webp") return [82,73,70,70].every((v,i) => bytes[i] === v) && [87,69,66,80].every((v,i) => bytes[i+8] === v);
   return false;
 }
-async function attachImages(incidents, env) {
+async function attachImages(incidents, env, urlPrefix="/media/") {
   if (!incidents.length) return incidents;
-  const placeholders = incidents.map(() => "?").join(",");
-  const ids = incidents.map(row => row.id);
+  const ids = [...new Set(incidents.map(row => row.id))];
+  const placeholders = ids.map(() => "?").join(",");
   const result = await env.DB.prepare(
     "SELECT id, incident_id, display_order FROM incident_media WHERE media_type = 'image' AND incident_id IN (" + placeholders + ") ORDER BY display_order ASC"
   ).bind(...ids).all();
   const byIncident = new Map(ids.map(id => [id, []]));
   for (const m of result.results || []) {
-    byIncident.get(m.incident_id)?.push({ id: m.id, url: "/media/" + encodeURIComponent(m.id) });
+    byIncident.get(m.incident_id)?.push({ id:m.id,
+      url:urlPrefix+encodeURIComponent(m.id) });
   }
   return incidents.map(i => ({ ...i, photos: byIncident.get(i.id) || [] }));
 }
-async function serveImage(id, env) {
-  if (!env.PHOTOS || !idPattern.test(id)) return new Response("Not found", { status: 404 });
+async function serveImage(id, env, includeUnpublished=false) {
+  if (!env.PHOTOS || !env.DB || !idPattern.test(id))
+    return new Response("Not found", { status: 404 });
+  // Only call with includeUnpublished=true AFTER administrator or incident
+  // ownership has been verified. Public image requests remain published-only.
   const media = await env.DB.prepare(
-    "SELECT m.storage_key FROM incident_media m JOIN incidents i ON i.id = m.incident_id WHERE m.id = ? AND m.media_type = 'image' AND m.storage_provider = 'r2' AND i.status = 'published'"
+    "SELECT m.storage_key FROM incident_media m JOIN incidents i ON i.id = m.incident_id " +
+    "WHERE m.id = ? AND m.media_type = 'image' AND m.storage_provider = 'r2' " +
+    (includeUnpublished ? "" : "AND i.status = 'published'")
   ).bind(id).first();
   if (!media) return new Response("Not found", { status: 404 });
   const object = await env.PHOTOS.get(media.storage_key);
@@ -970,6 +978,7 @@ async function serveImage(id, env) {
   return new Response(object.body, { headers: {
     "Content-Type": type, "Content-Length": String(object.size),
     "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff",
+    "X-Robots-Tag": "noindex, noimageindex",
     "Cross-Origin-Resource-Policy": "same-origin"
   } });
 }
@@ -1327,7 +1336,7 @@ async function ownerForIncident(request,env,id){
 async function getOwnedIncident(request,env,id){
   const owner=await ownerForIncident(request,env,id);
   if(owner.error)return owner.error;
-  const [result]=await attachImages([owner.row],env);
+  const [result]=await attachImages([owner.row],env,"/api/owner/media/");
   return json({ok:true,incident:result,owner_access:owner.method,
     can_edit:owner.row.status!=="removed"});
 }
@@ -1447,7 +1456,9 @@ async function accountMyIncidents(request,env){
   if(auth.error)return auth.error;
   const rows=await env.DB.prepare(
     "SELECT i.id,i.title,i.category,i.status,i.created_at,i.updated_at,"+
-    "(SELECT COUNT(*) FROM incident_media m WHERE m.incident_id=i.id) AS photos "+
+    "(SELECT COUNT(*) FROM incident_media m WHERE m.incident_id=i.id) AS photos, "+
+    "(SELECT m.id FROM incident_media m WHERE m.incident_id=i.id AND m.media_type='image' "+
+    "ORDER BY m.display_order ASC LIMIT 1) AS cover_photo_id "+
     "FROM incident_ownership o JOIN incidents i ON i.id=o.incident_id "+
     "WHERE o.owner_user_id=? ORDER BY i.created_at DESC LIMIT 200"
   ).bind(auth.identity.userId).all();
@@ -1671,7 +1682,7 @@ async function createReport(id, request, env, ctx) {
 
 // Inlined so the authenticated dashboard works even when the static asset
 // resolver does not map /admin/ to /admin/index.html in production.
-const ADMIN_DASHBOARD_HTML = "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n<meta name=\"robots\" content=\"noindex,nofollow\"><meta name=\"theme-color\" content=\"#f7c744\">\n<title>Admin Dashboard | Vote Them Off the Road</title>\n<link rel=\"icon\" href=\"/assets/favicon.svg\" type=\"image/svg+xml\">\n<link rel=\"stylesheet\" href=\"/assets/styles.css\"><link rel=\"stylesheet\" href=\"/assets/admin.css\"></head>\n<body><a class=\"skip\" href=\"#main\">Skip to content</a>\n<div class=\"announcement\">PRIVATE ADMIN DASHBOARD <strong>• NEW HAMPSHIRE</strong></div>\n<header><div class=\"container header-inner\">\n<a class=\"brand\" href=\"/\" aria-label=\"Vote Them Off the Road home\"><span class=\"brand-mark\" aria-hidden=\"true\">✓</span><span class=\"brand-words\">Vote Them Off<br>the Road<small>SITE MANAGEMENT.</small></span></a>\n<nav class=\"nav\"><a href=\"/nh/\" target=\"_blank\" rel=\"noopener\">Public site ↗</a><a class=\"nav-cta\" href=\"/guidelines/\" target=\"_blank\" rel=\"noopener\">Site rules ↗</a></nav>\n</div></header>\n<main id=\"main\">\n<section class=\"admin-hero\"><div class=\"container admin-hero-inner\"><div><div class=\"section-kicker\">Your control room</div><h1>Admin dashboard.</h1><p>Review reports, manage published incidents and keep the community entertaining.</p>\n<p id=\"admin-signed-in\" class=\"admin-signed-in\"></p></div>\n<button id=\"refresh-admin\" class=\"btn btn-primary\" type=\"button\">↻ Refresh dashboard</button></div></section>\n<section class=\"section admin-section\"><div class=\"container\">\n<p id=\"admin-status\" class=\"admin-status\" role=\"status\" aria-live=\"polite\">Loading dashboard…</p>\n<div class=\"admin-stats\" id=\"admin-stats\"></div>\n<div class=\"admin-heading\"><div><div class=\"section-kicker\">Reports first</div><h2>Removal requests & reports</h2></div><span class=\"admin-note\">A report does not automatically hide a post.</span></div>\n<div id=\"admin-reports\" class=\"admin-list\"></div>\n<div class=\"admin-heading admin-heading-spaced\"><div><div class=\"section-kicker\">The whole board</div><h2>Manage incidents</h2><p class=\"admin-category-help\">To change an incident category, choose a category in its card and click <strong>Save category</strong>.</p></div></div>\n<div id=\"admin-incidents\" class=\"admin-list\"></div>\n<p class=\"admin-footnote\">“Remove from site” is reversible. “Permanently delete + photos” destroys the incident, its votes and reports, and associated R2 photos. This action cannot be undone.</p>\n</div></section></main>\n<footer class=\"footer\"><div class=\"container\"><div class=\"footer-bottom\">Vote Them Off the Road • Private administrator area</div></div></footer>\n<script src=\"/assets/site.js\" defer></script><script src=\"/assets/admin.js?v=20261109-owner-history\" defer></script></body></html>\n";
+const ADMIN_DASHBOARD_HTML = "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n<meta name=\"robots\" content=\"noindex,nofollow\"><meta name=\"theme-color\" content=\"#f7c744\">\n<title>Admin Dashboard | Vote Them Off the Road</title>\n<link rel=\"icon\" href=\"/assets/favicon.svg\" type=\"image/svg+xml\">\n<link rel=\"stylesheet\" href=\"/assets/styles.css\"><link rel=\"stylesheet\" href=\"/assets/admin.css?v=20261110-photo-gallery\"></head>\n<body><a class=\"skip\" href=\"#main\">Skip to content</a>\n<div class=\"announcement\">PRIVATE ADMIN DASHBOARD <strong>• NEW HAMPSHIRE</strong></div>\n<header><div class=\"container header-inner\">\n<a class=\"brand\" href=\"/\" aria-label=\"Vote Them Off the Road home\"><span class=\"brand-mark\" aria-hidden=\"true\">✓</span><span class=\"brand-words\">Vote Them Off<br>the Road<small>SITE MANAGEMENT.</small></span></a>\n<nav class=\"nav\"><a href=\"/nh/\" target=\"_blank\" rel=\"noopener\">Public site ↗</a><a class=\"nav-cta\" href=\"/guidelines/\" target=\"_blank\" rel=\"noopener\">Site rules ↗</a></nav>\n</div></header>\n<main id=\"main\">\n<section class=\"admin-hero\"><div class=\"container admin-hero-inner\"><div><div class=\"section-kicker\">Your control room</div><h1>Admin dashboard.</h1><p>Review reports, manage published incidents and keep the community entertaining.</p>\n<p id=\"admin-signed-in\" class=\"admin-signed-in\"></p></div>\n<button id=\"refresh-admin\" class=\"btn btn-primary\" type=\"button\">↻ Refresh dashboard</button></div></section>\n<section class=\"section admin-section\"><div class=\"container\">\n<p id=\"admin-status\" class=\"admin-status\" role=\"status\" aria-live=\"polite\">Loading dashboard…</p>\n<div class=\"admin-stats\" id=\"admin-stats\"></div>\n<div class=\"admin-heading\"><div><div class=\"section-kicker\">Reports first</div><h2>Removal requests & reports</h2></div><span class=\"admin-note\">A report does not automatically hide a post.</span></div>\n<div id=\"admin-reports\" class=\"admin-list\"></div>\n<div class=\"admin-heading admin-heading-spaced\"><div><div class=\"section-kicker\">The whole board</div><h2>Manage incidents</h2><p class=\"admin-category-help\">To change an incident category, choose a category in its card and click <strong>Save category</strong>.</p></div></div>\n<div id=\"admin-incidents\" class=\"admin-list\"></div>\n<p class=\"admin-footnote\">“Remove from site” is reversible. “Permanently delete + photos” destroys the incident, its votes and reports, and associated R2 photos. This action cannot be undone.</p>\n</div></section></main>\n<footer class=\"footer\"><div class=\"container\"><div class=\"footer-bottom\">Vote Them Off the Road • Private administrator area</div></div></footer>\n<script src=\"/assets/site.js\" defer></script><script src=\"/assets/admin.js?v=20261110-photo-gallery\" defer></script></body></html>\n";
 
 /* Private admin API. Both Cloudflare Access and Worker-side signed JWT validation
    must succeed. No admin credentials or user report details are exposed publicly. */
@@ -1862,7 +1873,14 @@ async function adminApi(request, env, path, identity) {
       ORDER BY CASE r.status WHEN 'open' THEN 0 WHEN 'reviewing' THEN 1 ELSE 2 END,
         r.created_at DESC LIMIT 200
     `).all();
-    return json({ reports: rows.results || [], enhanced });
+    const reports=rows.results||[];
+    const associated=[...new Set(reports.map(row=>row.incident_id).filter(Boolean))]
+      .map(id=>({id}));
+    const imageRows=await attachImages(associated,env,"/admin/media/");
+    const imageById=new Map(imageRows.map(row=>[row.id,row.photos]));
+    return json({reports:reports.map(row=>({
+      ...row,photos:imageById.get(row.incident_id)||[]
+    })),enhanced});
   }
   if (path === "/admin/api/incidents" && request.method === "GET") {
     const enhanced = await featureSchemaReady(env);
@@ -1881,7 +1899,8 @@ async function adminApi(request, env, path, identity) {
       ORDER BY ${enhanced ? "CASE WHEN i.status='hidden' AND i.auto_hidden_at IS NOT NULL THEN 0 ELSE 1 END," : ""}
         i.created_at DESC LIMIT 200
     `).all();
-    return json({ incidents: rows.results || [], enhanced });
+    return json({incidents:await attachImages(rows.results||[],env,
+      "/admin/media/"),enhanced});
   }
   const editHistoryRoute=/^\/admin\/api\/incidents\/([A-Za-z0-9_-]{6,80})\/edits$/.exec(path);
   if(editHistoryRoute && request.method==="GET"){
@@ -1995,6 +2014,18 @@ async function adminRequest(request, env, pathname) {
       }
     });
   }
+  if (pathname.startsWith("/admin/media/")) {
+    if (request.method !== "GET" && request.method !== "HEAD")
+      return new Response("Method not allowed",{status:405,headers:{Allow:"GET, HEAD"}});
+    try {
+      const image=await serveImage(pathname.slice("/admin/media/".length),env,true);
+      return request.method==="HEAD"?
+        new Response(null,{status:image.status,headers:image.headers}):image;
+    } catch(error) {
+      console.error("Admin image fetch failed",error?.name||"unknown");
+      return new Response("Temporarily unavailable",{status:503});
+    }
+  }
   if (pathname.startsWith("/admin/api/")) {
     try { return await adminApi(request, env, pathname, identity); }
     catch (error) {
@@ -2042,6 +2073,25 @@ export default {
         ? await serveSharedIncidentPage(request,env,url)
         : await env.ASSETS.fetch(request);
       return withVoterCookie(request,page);
+    }
+    const ownerMedia=/^\/api\/owner\/media\/([A-Za-z0-9_-]{6,80})$/.exec(pathname);
+    if(ownerMedia) {
+      if (request.method!=="GET" && request.method!=="HEAD")
+        return new Response("Method not allowed",{status:405,headers:{Allow:"GET, HEAD"}});
+      try {
+        const media=await env.DB.prepare(
+          "SELECT incident_id FROM incident_media WHERE id=? AND media_type='image'"
+        ).bind(ownerMedia[1]).first();
+        if (!media) return new Response("Not found",{status:404});
+        const owner=await ownerForIncident(request,env,media.incident_id);
+        if (owner.error) return owner.error;
+        const image=await serveImage(ownerMedia[1],env,true);
+        return request.method==="HEAD"?
+          new Response(null,{status:image.status,headers:image.headers}):image;
+      } catch(error) {
+        console.error("Owner image fetch failed",error?.name||"unknown");
+        return new Response("Temporarily unavailable",{status:503});
+      }
     }
     if (pathname.startsWith("/media/")) {
       if (request.method !== "GET" && request.method !== "HEAD")
