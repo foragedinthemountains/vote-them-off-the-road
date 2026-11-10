@@ -1,12 +1,27 @@
 "use strict";
-// Optional public WorkOS AuthKit integration for a static HTML/JS site.
-// This loads nothing from the provider until WORKOS_CLIENT_ID is configured
-// and the ownership schema is fully activated. Guest mode never needs sign-in.
-// SDK version is pinned to avoid unreviewed automatic dependency updates.
+// The Worker owns WorkOS session exchange and refresh. No browser SDK, API key,
+// or refresh token is exposed to JavaScript. Access tokens stay in memory only.
 (() => {
-  const SDK_URL="https://cdn.jsdelivr.net/npm/@workos-inc/authkit-js@0.20.4/+esm";
-  const REDIRECT_URI="https://votethemofftheroad.com/nh/account/";
-  const state={enabled:false,client:null,error:null};
+  const state={enabled:false,user:null,error:null};
+  let token=null,expiry=0,loading=null;
+  async function session(force=false) {
+    if(loading)return loading;
+    if(!force && token && Date.now()<expiry-30000)return token;
+    loading=(async()=>{
+      const response=await fetch("/api/auth/session",{
+        method:"GET",credentials:"same-origin",cache:"no-store",
+        headers:{Accept:"application/json"}
+      });
+      const data=await response.json().catch(()=>({}));
+      if(!response.ok)throw Error(data.error||"Could not check your session.");
+      state.user=data.signed_in?data.user:null;
+      token=data.signed_in?data.access_token:null;
+      expiry=data.signed_in&&Number.isSafeInteger(data.expires_at)?
+        data.expires_at*1000:0;
+      return token;
+    })();
+    try{return await loading;}finally{loading=null;}
+  }
   const ready=(async()=>{
     try{
       const response=await fetch("/api/account/config",{
@@ -15,59 +30,65 @@
       });
       if(!response.ok)return state;
       const config=await response.json();
-      if(!config.enabled || typeof config.client_id!=="string")return state;
-      if(!/^client_[A-Za-z0-9]{8,128}$/.test(config.client_id))
-        throw Error("Account client ID is invalid");
-      const {createClient}=await import(SDK_URL);
-      if(typeof createClient!=="function")
-        throw Error("WorkOS AuthKit SDK is unavailable");
-      // The SDK handles OAuth PKCE, callback processing and token refresh.
-      const client=await createClient(config.client_id,{
-        redirectUri:REDIRECT_URI,
-        onRedirectCallback:()=>{
-          window.dispatchEvent(new Event("vtor:account-signed-in"));
-        }
-      });
-      state.client=client;
+      if(config.enabled!==true || config.provider!=="workos")return state;
       state.enabled=true;
-      window.dispatchEvent(new Event("vtor:accounts-ready"));
+      await session();
     }catch(error){
-      state.error=error?.message||"WorkOS authentication unavailable";
+      state.error=error?.message||"Sign-in is temporarily unavailable";
     }
     return state;
   })();
   async function getToken(){
     await ready;
-    if(!state.enabled||!state.client?.getUser())return null;
-    return await state.client.getAccessToken();
+    if(!state.enabled)return null;
+    return session();
   }
   async function fetchAuthenticated(path,options={}){
-    const token=await getToken();
-    if(!token)throw Error("Please sign in to manage your account.");
-    const headers=new Headers(options.headers||{});
-    headers.set("Authorization","Bearer "+token);
-    const response=await fetch(path,{
-      ...options,headers,cache:"no-store",credentials:"same-origin"
-    });
-    const result=await response.json().catch(()=>({error:"Unexpected response"}));
-    if(!response.ok)throw Error(result.error||"Account request failed");
-    return result;
+    let current=await getToken();
+    if(!current)throw Error("Please sign in to manage your account.");
+    for(let attempt=0;attempt<2;attempt++){
+      const headers=new Headers(options.headers||{});
+      headers.set("Authorization","Bearer "+current);
+      const response=await fetch(path,{
+        ...options,headers,cache:"no-store",credentials:"same-origin"
+      });
+      if(response.status===401 && attempt===0){
+        current=await session(true);
+        if(current)continue;
+      }
+      const data=await response.json().catch(()=>({error:"Unexpected response"}));
+      if(!response.ok)throw Error(data.error||"Account request failed");
+      return data;
+    }
+    throw Error("Please sign in again.");
   }
-  function getUser(){return state.client?.getUser()||null;}
+  function getUser(){return state.user;}
   async function signIn(){
     await ready;
     if(!state.enabled)throw Error("Public sign-in isn't enabled yet");
-    return state.client.signIn();
+    location.assign("/api/auth/start?mode=signin");
   }
   async function signUp(){
     await ready;
     if(!state.enabled)throw Error("Public registration isn't enabled yet");
-    return state.client.signUp();
+    location.assign("/api/auth/start?mode=signup");
   }
   async function signOut(){
     await ready;
-    if(!state.enabled||!getUser())return;
-    return state.client.signOut({returnTo:REDIRECT_URI});
+    if(!state.enabled)return;
+    const response=await fetch("/api/auth/logout",{
+      method:"POST",credentials:"same-origin",cache:"no-store",
+      headers:{"Accept":"application/json","Content-Type":"application/json"},
+      body:"{}"
+    });
+    const data=await response.json().catch(()=>({}));
+    if(!response.ok)throw Error(data.error||"Could not sign out.");
+    token=null;expiry=0;state.user=null;
+    // Only navigate to the fixed WorkOS logout host or our account page.
+    const target=new URL(data.logout_url||"/nh/account/",location.origin);
+    if(target.origin!=="https://api.workos.com"&&target.origin!==location.origin)
+      throw Error("Invalid sign-out redirect.");
+    location.assign(target.href);
   }
   window.VTORAccounts={
     ready,state,getUser,signIn,signUp,signOut,getToken,fetchAuthenticated
