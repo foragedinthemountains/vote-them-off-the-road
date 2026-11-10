@@ -1,6 +1,7 @@
 "use strict";
 (() => {
   const store = window.VTORGuestSubmissions;
+  const accounts = window.VTORAccounts;
   const list = document.querySelector("#guest-submissions-list");
   const status = document.querySelector("#guest-submissions-status");
   const importForm = document.querySelector("#guest-import-form");
@@ -112,6 +113,62 @@
           detail.textContent = "Hidden or pending moderation review.";
         } else {
           detail.textContent = "Published. You can edit or remove this post.";
+        }
+        // Claim is offered only after the guest management key has been
+        // verified AND the browser is signed in. No silent bulk transfers.
+        if(accounts){
+          await accounts.ready;
+          if(current!==generation || !card.isConnected)return;
+          if(accounts.state.enabled && accounts.getUser()){
+            const claim=create("button","btn btn-secondary","Add to my account");
+            claim.type="button";
+            const feedback=create("p","owner-hint");
+            feedback.setAttribute("role","status");
+            claim.addEventListener("click",async()=>{
+              if(claim.disabled)return;
+              if(!confirm("Add this guest incident to your signed-in account? "+
+                "You'll manage it from My Account, and the old private link will stop working."))return;
+              claim.disabled=true;
+              claim.textContent="Adding to account…";
+              feedback.textContent="";
+              try{
+                const jwt=await accounts.getToken();
+                if(!jwt)throw Error("Please sign in before adding this incident.");
+                const response=await fetch(
+                  "/api/owner/incidents/"+encodeURIComponent(entry.id)+"/claim",{
+                    method:"POST",credentials:"same-origin",cache:"no-store",
+                    headers:{
+                      "Authorization":"Bearer "+jwt,
+                      "X-Incident-Manage-Key":entry.key,
+                      "Content-Type":"application/json",
+                      "Accept":"application/json"
+                    },
+                    body:"{}"
+                  });
+                const result=await response.json().catch(()=>({}));
+                if(!response.ok)throw Error(result.error||"Unable to add this incident.");
+                // Revoke the now-invalid guest key locally only AFTER the
+                // server confirms the atomic ownership transfer succeeded.
+                const forgotten=store.forget(entry.id);
+                render();
+                status.replaceChildren(
+                  document.createTextNode(
+                    forgotten?"Added to your account. Find it under My Incidents. ":
+                    "Added to your account. This browser could not clear the old guest link. "
+                  )
+                );
+                const link=create("a","","Open My Account");
+                link.href="/nh/account/";
+                status.append(link);
+              }catch(error){
+                feedback.textContent=error?.message||"Unable to add this incident.";
+                claim.textContent="Add to my account";
+                claim.disabled=false;
+              }
+            });
+            actions.insertBefore(claim,forget);
+            card.append(feedback);
+          }
         }
         // A title edited here or in moderation stays updated in the saved list.
         if (incident.title && incident.title !== entry.title)
