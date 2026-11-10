@@ -44,6 +44,10 @@
     try{
       const data=await action("GET",url);
       const incident=data.incident;
+      let storageWarning=false;
+      if(data.owner_access==="guest"&&managementKey){
+        storageWarning=!window.VTORGuestSubmissions?.save(incidentId,managementKey,incident.title||"");
+      }
       document.querySelector("#owner-title").value=incident.title||"";
       document.querySelector("#owner-description").value=incident.description||"";
       document.querySelector("#owner-location").value=incident.location_label||"";
@@ -58,7 +62,9 @@
       }
       const allowed=data.can_edit===true;
       form.hidden=!allowed;removeButton.disabled=!allowed;
-      access.textContent=data.owner_access==="guest"?
+      access.textContent=storageWarning?
+        "Your browser could not save this private link. Back it up securely.":
+        data.owner_access==="guest"?
         "You're using the private guest management link. Keep it safe. You may claim this case with an account later.":
         "You're managing this case with your verified account.";
       status.textContent=incident.status==="removed"?
@@ -90,6 +96,8 @@
     };
     try{
       const result=await action("PATCH",url,data);
+      if(!result.unchanged&&managementKey)
+        window.VTORGuestSubmissions?.save(incidentId,managementKey,data.title);
       status.textContent=result.message||(result.unchanged?
         "No changes were needed.":"Changes saved.");
       if(result.pending_review){
