@@ -40,7 +40,11 @@
       const reason=new URLSearchParams(location.search).get("reason");
       const safeReasons=new Set(["configuration","workos_authorization",
         "callback_parameters","missing_flow_cookie","oauth_state",
-        "exchange_network","exchange_rejected","token_validation","session_cookie"]);
+        "exchange_network","exchange_rejected","token_validation","session_cookie",
+        "token_precheck","token_malformed","token_header","token_issuer",
+        "token_client","token_subject","token_session","token_time",
+        "token_impersonation","jwks_fetch","jwks_format","jwks_key",
+        "token_signature","member_database","token_unexpected"]);
       status.textContent=callbackStatus==="failed"?
         "Sign-in didn't finish. Diagnostic: "+
         (safeReasons.has(reason)?reason:"unknown")+
