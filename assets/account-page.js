@@ -1,6 +1,7 @@
 "use strict";
 (() => {
   const status=document.querySelector("#account-status");
+  const panelTitle=document.querySelector("#account-panel-title");
   const signIn=document.querySelector("#account-signin");
   const signInButton=document.querySelector("#account-sign-in");
   const signUpButton=document.querySelector("#account-sign-up");
@@ -25,6 +26,8 @@
     const current=++generation;
     await accounts.ready;
     if(!accounts.state.enabled){
+      status.hidden=false;
+      if(panelTitle)panelTitle.textContent="My account";
       status.textContent=accounts.state.error?
         "Sign-in couldn't load. Guest voting and submissions still work.":
         "We're preparing free user accounts. You can keep voting and posting as a guest.";
@@ -34,6 +37,8 @@
     }
     const user=accounts.getUser();
     if(!user){
+      status.hidden=false;
+      if(panelTitle)panelTitle.textContent="Sign in or create a free account";
       loggedIn.hidden=true;incidentPanel.hidden=true;historyPanel.hidden=true;
       signIn.hidden=false;
       const callbackStatus=new URLSearchParams(location.search).get("auth");
@@ -54,10 +59,11 @@
           "Sign in or create a free account. You're also welcome to use the site as a guest.";
       return;
     }
+    if(panelTitle)panelTitle.textContent="My account";
+    status.hidden=true;
     signIn.hidden=true;loggedIn.hidden=false;
     incidentPanel.hidden=false;historyPanel.hidden=false;
     userName.textContent=user.email||"Signed-in juror";
-    status.textContent="You're signed in. Public member accounts are separate from the site's protected admin login.";
     try{
       const [me,posts,score]=await Promise.all([
         accounts.fetchAuthenticated("/api/account/me"),
@@ -68,7 +74,7 @@
       incidentList.replaceChildren();
       if(!posts.incidents?.length){
         incidentList.append(make("p","owner-hint",
-          "No account-owned incidents yet. Post while signed in or claim a guest submission using its private management link."));
+          "You haven't posted any incidents with this account yet. Submit an incident or visit My Submissions to manage guest posts."));
       }
       for(const incident of posts.incidents||[]){
         const card=make("div","owner-case");
@@ -104,7 +110,7 @@
     button?.addEventListener("click",async()=>{
       button.disabled=true;
       try{await action();}
-      catch(error){status.textContent=error.message;button.disabled=false;}
+      catch(error){status.hidden=false;status.textContent=error.message;button.disabled=false;}
     });
   }
   linkButton?.addEventListener("click",async()=>{
