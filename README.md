@@ -494,3 +494,65 @@ remain available without signing in.
 No D1 migration or additional WorkOS/Cloudflare secrets are required. A
 GitHub merge is not proof of a successful production deployment or manual
 browser sign-in test.
+
+## Account-wide jury voting and XP (2026-11-10)
+
+Account sign-in now unifies votes and Jury XP **across devices**. When a
+visitor is signed in, the public jury client sends a short-lived WorkOS
+access token as a bearer header with feed, voting, and jury-game requests.
+The Worker verifies that token (WorkOS JWKS + exact configured client ID),
+maps it to a provider-independent `public_members.id`, and derives a
+deterministic SHA-256 account voter key from that internal ID. This voter
+key is not settable with a browser cookie. **All signed-in browsers vote
+under one identity** in the existing `votes_v4` table; existing UNIQUE
+constraints prevent duplicate account votes and XP awards. They can
+change an existing choice but earn no second vote or XP award.
+
+Signed-out browsers retain the prior anonymous cookie-keyed behavior.
+Their anonymous jury stats, streaks, XP, predictions and games stay
+separate until the user **explicitly** selects "Add this browser's guest
+jury history to my account" on the My Account page. This irreversible
+transfer requires login, explicit confirmation and the current anonymous
+browser cookie. The Worker checks that the browser is not linked to a
+different account, then transactionally migrates records from `votes`,
+`votes_v4`, `jury_xp_events`, `jury_verdict_guesses`,
+`jury_daily_checkins`, `jury_streak_saves`, `battle_votes`, and
+`weekly_predictions` to the canonical account key. `INSERT OR IGNORE`
+retains the account's existing choice if an older guest vote conflicts,
+then removes the now-redundant guest records. Each statement rechecks
+the account/browser link before moving data. Re-running sync is safe,
+including for already linked browsers with new guest activity.
+
+Account XP summaries include both canonical account XP and still-unmerged
+linked-browser XP while showing the account page, deduplicated by
+`event_key`. The public jury board uses the canonical account identity
+for signed-in votes, guesses, battles, predictions, Daily Jury Duty,
+check-ins and streak saves. Signed-out users can still vote without
+an account. A temporary WorkOS login outage does not block anonymous
+public voting; if a juror is already known to be signed in, the
+browser will not silently switch an account vote to a guest vote.
+
+**Safety boundaries:** This guarantees one vote *per signed-in account*
+per incident and deduplicates guest votes that are explicitly merged,
+but guest voting is intentionally not proof of a unique human. Browser
+cookies can be reset, so the broader "one person" rule remains a
+community policy, not a universal identity guarantee. Sign-out does
+not destroy account-owned votes. A person who intentionally votes as
+a guest after linking a browser is creating a separate anonymous vote;
+consider additional anti-abuse safeguards after measuring adoption.
+
+**No additional D1 migration or API secrets are needed.**
+
+**Manual browser acceptance tests after Cloudflare deploy:**
+1. Sign in on desktop. Vote on a new incident; verify it appears voted.
+2. Sign in to the **same account** on a different browser/device. The
+   incident is already voted and the XP/rank persists; changing the
+   choice doesn't increase the vote total or award another vote XP.
+3. Sign out and verify a fresh anonymous browser can still vote.
+4. On a browser with older guest votes, sign in, select Sync guest
+   jury history in My Account and confirm. Verify old votes appear
+   on the signed-in board and XP remains deduplicated.
+5. Attempt a sync from another account on a browser that was already
+   linked; verify it is denied and no history is transferred.
+6. Confirm predictions, verdict guesses, battles, streaks and account
+   XP still render. Confirm removed incidents remain inaccessible.
