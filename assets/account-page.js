@@ -43,7 +43,7 @@
       ["Verdicts cast",Number(score.verdicts||0).toLocaleString(),"⚖️"],
       ["Current streak",Number(score.current_streak||0)+" day"+
         (Number(score.current_streak||0)===1?"":"s"),"🔥"],
-      ["Active days",Number(score.active_days||0).toLocaleString(),"📅"]
+      ["Days active (year)",Number(score.active_days||0).toLocaleString(),"📅"]
     ];
     for(const [label,value,icon] of statValues){
       const tile=make("div","jury-profile-stat");
