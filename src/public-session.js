@@ -242,11 +242,33 @@ export async function authCallback(request,env) {
   }catch(error){
     // A signed token must pass *all* original JWT checks before a session
     // or member ID can be created. Do not expose JWT contents in diagnostics.
-    console.warn("WorkOS token verification failed",{
-      category:typeof error?.message==="string"?
-        error.message.slice(0,90):"unknown"
-    });
-    return errorRedirect("token_validation");
+    // The codes below disclose only which verification stage failed.
+    // Never return the JWT, its claims, signing-key details, or SQL errors.
+    const cases=new Map([
+      ["Invalid WorkOS access token","token_precheck"],
+      ["Malformed authentication token","token_malformed"],
+      ["Authentication token too large","token_malformed"],
+      ["Invalid authentication token","token_malformed"],
+      ["WorkOS token header rejected","token_header"],
+      ["WorkOS token issuer rejected","token_issuer"],
+      ["WorkOS token client rejected","token_client"],
+      ["WorkOS token subject rejected","token_subject"],
+      ["WorkOS token session rejected","token_session"],
+      ["WorkOS token time rejected","token_time"],
+      ["WorkOS token impersonation rejected","token_impersonation"],
+      ["Auth signing keys unavailable","jwks_fetch"],
+      ["No compatible WorkOS signing keys","jwks_format"],
+      ["Unknown WorkOS signing key","jwks_key"],
+      ["Invalid WorkOS token signature","token_signature"],
+      ["Unable to initialize member account","member_database"],
+      ["Identity could not be verified","member_database"]
+    ]);
+    const message=typeof error?.message==="string"?error.message:"";
+    const reason=cases.get(message)||(
+      /D1_ERROR|database|SQLITE_CONSTRAINT|SQLITE_ERROR/i.test(message)?
+        "member_database":"token_unexpected");
+    console.warn("WorkOS token verification failed",{reason});
+    return errorRedirect(reason);
   }
   try{
     const newSession=createAppSession(result.data,expiresAt);
