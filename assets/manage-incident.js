@@ -15,6 +15,14 @@
   let managementKey=fragment.get("key")||
     window.VTORGuestSubmissions?.get(incidentId)?.key||"";
   let busy=false;
+  const photoObjectUrls=new Set();
+  let photoGeneration=0;
+  function clearPhotoObjects(){
+    photoGeneration++;
+    for(const url of photoObjectUrls)URL.revokeObjectURL(url);
+    photoObjectUrls.clear();
+  }
+  window.addEventListener("pagehide",clearPhotoObjects);
   if(!/^[A-Za-z0-9_-]{6,80}$/.test(incidentId)){
     status.textContent="No incident selected. Open your private management link or visit My Account.";
     return;
@@ -59,13 +67,40 @@
       document.querySelector("#owner-description").value=incident.description||"";
       document.querySelector("#owner-location").value=incident.location_label||"";
       document.querySelector("#owner-category").value=incident.category||"other";
+      clearPhotoObjects();
       photoList.replaceChildren();
-      for(const photo of incident.photos||[]){
-        if(!photo.url?.startsWith("/media/"))continue;
+      const photoBatch=photoGeneration;
+      for(const [index,photo] of (incident.photos||[]).entries()){
+        if(typeof photo?.url!=="string" ||
+           !/^\/api\/owner\/media\/[A-Za-z0-9_-]{6,80}$/.test(photo.url))continue;
+        // Private image requests use the same guest key or account token as
+        // the owner API. Never publish the media URLs as unprotected links.
+        const link=document.createElement("a");
+        link.target="_blank";link.rel="noopener noreferrer";
+        link.setAttribute("aria-label","Open full photo "+(index+1));
         const image=document.createElement("img");
-        image.src=photo.url;image.loading="lazy";
-        image.alt="Photo from your incident";
-        photoList.append(image);
+        image.alt="Photo "+(index+1)+" of your incident";
+        image.loading="lazy";
+        link.append(image);
+        photoList.append(link);
+        (async()=>{
+          try{
+            const response=await fetch(photo.url,{
+              headers:await headers(),credentials:"same-origin",cache:"no-store"
+            });
+            if(!response.ok || !response.headers.get("Content-Type")?.startsWith("image/"))
+              throw Error("Cannot load private photo");
+            const objectUrl=URL.createObjectURL(await response.blob());
+            if(photoBatch!==photoGeneration || !link.isConnected){
+              URL.revokeObjectURL(objectUrl);return;
+            }
+            photoObjectUrls.add(objectUrl);
+            image.src=objectUrl;
+            link.href=objectUrl;
+          }catch{
+            if(photoBatch===photoGeneration)link.remove();
+          }
+        })();
       }
       const allowed=data.can_edit===true;
       form.hidden=!allowed;removeButton.disabled=!allowed;
