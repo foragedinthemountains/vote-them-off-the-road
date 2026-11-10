@@ -2,6 +2,12 @@
 // WorkOS AuthKit is optional. Guest voting, posting and management need no account.
 // All stored ownership uses INTERNAL Vote Them Off the Road member IDs.
 const WORKOS_ISSUER="https://api.workos.com";
+// WorkOS uses the environment's DEFAULT application's client ID in the JWT
+// issuer, even when a different application signs in. Production logs from
+// a verified token confirm this exact default app issuer. WorkOS's per-app
+// client_id claim is separately required to match our own Client ID.
+const WORKOS_DEFAULT_APP_ISSUER=
+  "https://api.workos.com/user_management/client_01M7394ABJ2RKOKXTC3FKZV7NH";
 // Exact Production AuthKit tenant from the configured WorkOS hosted login.
 // Never accept an arbitrary *.authkit.app issuer from unverified JWT claims.
 const WORKOS_HOSTED_ISSUER="https://illuminated-marble-11.authkit.app";
@@ -80,6 +86,7 @@ async function verifiedWorkosSubject(token,clientId){
   const issuer=String(claims.iss||"").replace(/\/$/,"");
   const issuerAllowed=issuer===WORKOS_ISSUER ||
     issuer===WORKOS_ISSUER+"/user_management/"+clientId ||
+    issuer===WORKOS_DEFAULT_APP_ISSUER ||
     issuer===WORKOS_HOSTED_ISSUER ||
     issuer===WORKOS_HOSTED_ISSUER+"/user_management/"+clientId;
   // Keep each original security check, but throw fixed reason codes so a
@@ -120,7 +127,7 @@ async function verifiedWorkosSubject(token,clientId){
   // Inspect the issuer only after the WorkOS JWKS signature verifies.
   // Issuer URLs are public metadata, never access tokens or secrets.
   if(!issuerAllowed){
-    console.warn("Signed WorkOS token issuer does not match Production app",issuer);
+    console.warn("Signed WorkOS token issuer not in configured allowlist",issuer);
     throw Error("WorkOS token issuer rejected");
   }
   return claims.sub;

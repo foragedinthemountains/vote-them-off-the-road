@@ -404,3 +404,22 @@ be confirmed without Production WorkOS credentials configured in Cloudflare.
 users. Only rotate it deliberately (or during incident response). A seven-day
 application cookie cap applies; WorkOS may end the session sooner. Never store
 refresh tokens in localStorage.
+
+## Production default application issuer (2026-11-10)
+
+WorkOS AuthKit's [Applications documentation](https://workos.com/docs/authkit/applications)
+states that an environment can contain multiple applications and **all access
+tokens in that environment have an `iss` derived from the environment's
+DEFAULT application Client ID**, even if the user is authenticating for
+another application. The JWT's `client_id` still identifies the specific
+application making the request.
+
+In Production the user signed in successfully with application
+`client_01M73AN7TQVNRBPSBTVB91DVAZ`, but Cloudflare's logging after
+validating the WorkOS RSA signature showed the issuer
+`https://api.workos.com/user_management/client_01M7394ABJ2RKOKXTC3FKZV7NH`.
+The verifier now accepts that **exact** pinned default-app issuer.
+It does NOT accept arbitrary issuers. It still validates the application
+`client_id`, WorkOS JWKS signature, user and session identity, timing,
+non-impersonation and secure session-cookie flow. No WorkOS or Cloudflare
+secret changes are required for this application-issuer mismatch.
