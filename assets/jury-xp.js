@@ -1,5 +1,8 @@
 "use strict";
 (() => {
+  const juryFetch=(path,options)=>
+    window.VTORAccounts?.juryFetch?
+      window.VTORAccounts.juryFetch(path,options):fetch(path,options);
   const panel=document.querySelector("#jury-xp");
   const missionPanel=document.querySelector("#jury-missions");
   if(!panel||!missionPanel)return;
@@ -13,7 +16,7 @@
   async function load(){
     const current=++lastReq;
     try{
-      const response=await fetch("/api/jury/xp",{
+      const response=await juryFetch("/api/jury/xp",{
         credentials:"same-origin",cache:"no-store",headers:{Accept:"application/json"}
       });
       if(!response.ok)throw Error("Jury XP temporarily unavailable");
