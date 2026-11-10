@@ -1483,8 +1483,8 @@ async function accountXP(request,env){
     env.DB.prepare(
       "SELECT DISTINCT eastern_day FROM jury_xp_events WHERE "+
       "(voter_key_hash=? OR voter_key_hash IN "+linked+") "+
-      "ORDER BY eastern_day DESC LIMIT 366"
-    ).bind(key,userId).all(),
+      "AND eastern_day>=? ORDER BY eastern_day DESC LIMIT 366"
+    ).bind(key,userId,shiftDateKey(easternDateKey(),-365)).all(),
     env.DB.prepare(
       "SELECT id,title,category,choice,created_at FROM ("+
       "SELECT i.id,i.title,i.category,v.choice,v.created_at,"+
