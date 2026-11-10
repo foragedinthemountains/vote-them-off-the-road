@@ -944,23 +944,29 @@ function imageSignatureIsValid(bytes, type) {
   if (type === "image/webp") return [82,73,70,70].every((v,i) => bytes[i] === v) && [87,69,66,80].every((v,i) => bytes[i+8] === v);
   return false;
 }
-async function attachImages(incidents, env) {
+async function attachImages(incidents, env, urlPrefix="/media/") {
   if (!incidents.length) return incidents;
-  const placeholders = incidents.map(() => "?").join(",");
-  const ids = incidents.map(row => row.id);
+  const ids = [...new Set(incidents.map(row => row.id))];
+  const placeholders = ids.map(() => "?").join(",");
   const result = await env.DB.prepare(
     "SELECT id, incident_id, display_order FROM incident_media WHERE media_type = 'image' AND incident_id IN (" + placeholders + ") ORDER BY display_order ASC"
   ).bind(...ids).all();
   const byIncident = new Map(ids.map(id => [id, []]));
   for (const m of result.results || []) {
-    byIncident.get(m.incident_id)?.push({ id: m.id, url: "/media/" + encodeURIComponent(m.id) });
+    byIncident.get(m.incident_id)?.push({ id:m.id,
+      url:urlPrefix+encodeURIComponent(m.id) });
   }
   return incidents.map(i => ({ ...i, photos: byIncident.get(i.id) || [] }));
 }
-async function serveImage(id, env) {
-  if (!env.PHOTOS || !idPattern.test(id)) return new Response("Not found", { status: 404 });
+async function serveImage(id, env, includeUnpublished=false) {
+  if (!env.PHOTOS || !env.DB || !idPattern.test(id))
+    return new Response("Not found", { status: 404 });
+  // Only call with includeUnpublished=true AFTER administrator or incident
+  // ownership has been verified. Public image requests remain published-only.
   const media = await env.DB.prepare(
-    "SELECT m.storage_key FROM incident_media m JOIN incidents i ON i.id = m.incident_id WHERE m.id = ? AND m.media_type = 'image' AND m.storage_provider = 'r2' AND i.status = 'published'"
+    "SELECT m.storage_key FROM incident_media m JOIN incidents i ON i.id = m.incident_id " +
+    "WHERE m.id = ? AND m.media_type = 'image' AND m.storage_provider = 'r2' " +
+    (includeUnpublished ? "" : "AND i.status = 'published'")
   ).bind(id).first();
   if (!media) return new Response("Not found", { status: 404 });
   const object = await env.PHOTOS.get(media.storage_key);
@@ -970,6 +976,7 @@ async function serveImage(id, env) {
   return new Response(object.body, { headers: {
     "Content-Type": type, "Content-Length": String(object.size),
     "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff",
+    "X-Robots-Tag": "noindex, noimageindex",
     "Cross-Origin-Resource-Policy": "same-origin"
   } });
 }
@@ -1327,7 +1334,7 @@ async function ownerForIncident(request,env,id){
 async function getOwnedIncident(request,env,id){
   const owner=await ownerForIncident(request,env,id);
   if(owner.error)return owner.error;
-  const [result]=await attachImages([owner.row],env);
+  const [result]=await attachImages([owner.row],env,"/api/owner/media/");
   return json({ok:true,incident:result,owner_access:owner.method,
     can_edit:owner.row.status!=="removed"});
 }
@@ -1862,7 +1869,14 @@ async function adminApi(request, env, path, identity) {
       ORDER BY CASE r.status WHEN 'open' THEN 0 WHEN 'reviewing' THEN 1 ELSE 2 END,
         r.created_at DESC LIMIT 200
     `).all();
-    return json({ reports: rows.results || [], enhanced });
+    const reports=rows.results||[];
+    const associated=[...new Set(reports.map(row=>row.incident_id).filter(Boolean))]
+      .map(id=>({id}));
+    const imageRows=await attachImages(associated,env,"/admin/media/");
+    const imageById=new Map(imageRows.map(row=>[row.id,row.photos]));
+    return json({reports:reports.map(row=>({
+      ...row,photos:imageById.get(row.incident_id)||[]
+    })),enhanced});
   }
   if (path === "/admin/api/incidents" && request.method === "GET") {
     const enhanced = await featureSchemaReady(env);
@@ -1881,7 +1895,8 @@ async function adminApi(request, env, path, identity) {
       ORDER BY ${enhanced ? "CASE WHEN i.status='hidden' AND i.auto_hidden_at IS NOT NULL THEN 0 ELSE 1 END," : ""}
         i.created_at DESC LIMIT 200
     `).all();
-    return json({ incidents: rows.results || [], enhanced });
+    return json({incidents:await attachImages(rows.results||[],env,
+      "/admin/media/"),enhanced});
   }
   const editHistoryRoute=/^\/admin\/api\/incidents\/([A-Za-z0-9_-]{6,80})\/edits$/.exec(path);
   if(editHistoryRoute && request.method==="GET"){
