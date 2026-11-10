@@ -185,6 +185,20 @@
       if(error?.name!=="AbortError")button.textContent="Share: "+url;
     }
   }
+  function showCoverPhoto(card,row) {
+    const photo=Array.isArray(row.photos)?row.photos[0]:null;
+    if(typeof photo?.url!=="string" ||
+       !/^\/media\/[A-Za-z0-9_-]{6,80}$/.test(photo.url)) return;
+    const link=el("a","weekly-card-photo");
+    link.href="/nh/?incident="+encodeURIComponent(row.id)+"#incidents";
+    link.setAttribute("aria-label","View full incident and all photos");
+    const image=el("img");
+    image.src=photo.url;
+    image.alt="Photo submitted with "+String(row.title||"this incident");
+    image.loading="lazy";
+    link.append(image);
+    card.append(link);
+  }
   async function loadWeekly(offset=0){
     grid.replaceChildren();
     status.textContent="Loading jury results…";
@@ -233,6 +247,7 @@
             " head-to-head wins = "+worstPoints+" Worst points"),
           el("span","weekly-votes","✓ "+row.pass_votes+" Pass"+
             (row.funny_votes?" · 😂 "+row.funny_votes+" Funny":"")));
+        showCoverPhoto(card,row);
         card.append(el("p","weekly-qualification",row.qualified?
           (d.archived?"Final weekly podium":"Qualified for the weekly podium"):
           (Number(row.total_votes)>=Number(d.minimum_votes) ?
