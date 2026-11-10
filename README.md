@@ -556,3 +556,49 @@ consider additional anti-abuse safeguards after measuring adoption.
    linked; verify it is denied and no history is transferred.
 6. Confirm predictions, verdict guesses, battles, streaks and account
    XP still render. Confirm removed incidents remain inaccessible.
+
+
+## Account Jury Dashboard polish (2026-11-10)
+
+The signed-in /nh/account/ heading now reads **My Jury Account** without
+a trailing period. Its small heading switches from **Jury Account** (guest
+view) to **My Jury Dashboard** (signed-in view); public visitors no longer
+see engineering or optional-auth notices inside their signed-in panel.
+
+The existing **authenticated** GET /api/account/xp response now includes
+the following private, user-scoped fields in addition to its previous
+xp/rank/next_rank/linked_browsers values:
+
+- \`xp_to_next\`: XP remaining to the next existing jury rank.
+- \`verdicts\`: distinct incidents voted on across the canonical account
+  key and explicitly linked browser histories, with duplicates counted once.
+- \`active_days\`: distinct XP-earning days in the last year.
+- \`current_streak\`: consecutive Eastern calendar days with recorded XP
+  activity, allowing today or yesterday to be the streak's last day.
+- \`achievements\`: computed unlock/progress indicators for vote milestones,
+  Guess the Verdict, head-to-head play, an active three-day streak, and XP.
+  These are **not** permanent awarded badges; a current-streak achievement
+  becomes locked again if the streak is broken. The UI does not claim an
+  all-time streak record.
+- \`recent_votes\`: the 12 most recent unique votes on **published** New
+  Hampshire incidents; account choice takes priority when a still-linked
+  browser also voted on the same incident. Removed/hidden incident titles
+  are never exposed by this dashboard feed.
+
+The account page displays the XP total and current rank, an accessible rank
+progress bar, lifetime distinct verdict count, current streak, active days
+(last year), unlocks, and recent published verdict links. All labels and
+titles are set with textContent, never user-controlled HTML. Layout collapses
+to one column on phones. Existing incident ownership and guest-history sync
+remain available and no other private/public routes change.
+
+No new D1 migration or Cloudflare configuration is required. SQL was tested
+against SQLite test fixtures including overlapping linked-browser votes,
+in which duplicates counted once and account votes won tie resolution.
+
+**Release checks:** Confirm Cloudflare deployment succeeded; confirm
+the page header changes for both guest and signed-in views; test fresh account
+with zero history, signed-in account with votes on two devices and linked
+guest votes, 100/350/1000 XP threshold progress, and mobile sizes. Hide a
+previously voted-on incident and confirm it disappears from the recent
+verdicts list while the account's lifetime XP remains intact.
