@@ -10,7 +10,10 @@
   const params=new URLSearchParams(location.search);
   const incidentId=params.get("id")||"";
   const fragment=new URLSearchParams(location.hash.replace(/^#/,""));
-  let managementKey=fragment.get("key")||"";
+  // A saved browser capability can be reused after the URL fragment is cleared.
+  // This is intentionally scoped to this browser, never to a public incident ID.
+  let managementKey=fragment.get("key")||
+    window.VTORGuestSubmissions?.get(incidentId)?.key||"";
   let busy=false;
   if(!/^[A-Za-z0-9_-]{6,80}$/.test(incidentId)){
     status.textContent="No incident selected. Open your private management link or visit My Account.";
@@ -47,6 +50,10 @@
       let storageWarning=false;
       if(data.owner_access==="guest"&&managementKey){
         storageWarning=!window.VTORGuestSubmissions?.save(incidentId,managementKey,incident.title||"");
+        // A valid, durably stored capability does not need to remain exposed
+        // in browser history or the address bar.
+        if(!storageWarning&&location.hash)
+          history.replaceState(history.state,"",location.pathname+location.search);
       }
       document.querySelector("#owner-title").value=incident.title||"";
       document.querySelector("#owner-description").value=incident.description||"";
@@ -126,6 +133,8 @@
       status.textContent=result.message;
       // Invalidate the old capability fragment locally as well as in D1.
       managementKey="";
+      // The server has revoked this guest capability. Do not retain it locally.
+      window.VTORGuestSubmissions?.forget(incidentId);
       history.replaceState(history.state,"",location.pathname+location.search);
       await load();
     }catch(error){status.textContent=error.message;claimButton.disabled=false;}
