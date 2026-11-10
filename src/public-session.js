@@ -196,32 +196,67 @@ export async function authCallback(request,env) {
   const url=new URL(request.url);
   const flowCookie=getCookie(request,FLOW_COOKIE);
   const clearFlow=cookie(FLOW_COOKIE,"",0);
-  const errorRedirect=()=>redirect(ACCOUNT_URL+"?auth=failed",[clearFlow]);
-  if(!(await authConfigReady(env)))return errorRedirect();
-  if(url.searchParams.get("error"))return errorRedirect();
+  // Diagnostic codes are fixed strings, never WorkOS tokens or raw error
+  // descriptions. The callback code/state/refresh tokens are never logged.
+  const errorRedirect=reason=>redirect(ACCOUNT_URL+
+    "?auth=failed&reason="+reason,[clearFlow]);
+  if(!(await authConfigReady(env)))return errorRedirect("configuration");
+  if(url.searchParams.get("error")){
+    const providerError=String(url.searchParams.get("error")||"").slice(0,100);
+    console.warn("WorkOS authorization rejected",{
+      reason:/^[a-z_]{2,70}$/.test(providerError)?providerError:"provider_error"
+    });
+    return errorRedirect("workos_authorization");
+  }
   const code=url.searchParams.get("code"),state=url.searchParams.get("state");
-  if(!code || code.length>1000 || !state || state.length>200) return errorRedirect();
+  if(!code || code.length>1000 || !state || state.length>200)
+    return errorRedirect("callback_parameters");
+  if(!flowCookie)return errorRedirect("missing_flow_cookie");
   const flow=await unseal(env,flowCookie);
   if(!flow || !/^[A-Za-z0-9_-]{43}$/.test(flow.state||"") ||
      !/^[A-Za-z0-9_-]{43}$/.test(flow.verifier||"") ||
      !Number.isSafeInteger(flow.issuedAt) ||
      Math.abs(Date.now()-flow.issuedAt)>FLOW_TTL*1000 ||
-     state!==flow.state) return errorRedirect();
+     state!==flow.state) return errorRedirect("oauth_state");
+  let result;
   try{
-    const result=await workosExchange(env,{
+    result=await workosExchange(env,{
       grant_type:"authorization_code",code,code_verifier:flow.verifier
     });
-    if(!result.ok)return errorRedirect();
-    const userId=result.data?.user?.id;
-    const expiresAt=await validatedAccess(env,result.data.access_token,userId);
-    const session=createAppSession(result.data,expiresAt);
-    const encrypted=await seal(env,session);
+  }catch(error){
+    console.error("WorkOS code exchange network error",error?.name||"UnknownError");
+    return errorRedirect("exchange_network");
+  }
+  if(!result.ok){
+    const providerCode=String(result.data?.code||result.data?.error||"unknown");
+    console.warn("WorkOS code exchange rejected",{
+      status:result.status,
+      code:/^[a-zA-Z0-9_-]{1,80}$/.test(providerCode)?providerCode:"unknown"
+    });
+    return errorRedirect("exchange_rejected");
+  }
+  let expiresAt;
+  try{
+    expiresAt=await validatedAccess(env,result.data.access_token,
+      result.data?.user?.id);
+  }catch(error){
+    // A signed token must pass *all* original JWT checks before a session
+    // or member ID can be created. Do not expose JWT contents in diagnostics.
+    console.warn("WorkOS token verification failed",{
+      category:typeof error?.message==="string"?
+        error.message.slice(0,90):"unknown"
+    });
+    return errorRedirect("token_validation");
+  }
+  try{
+    const newSession=createAppSession(result.data,expiresAt);
+    const encrypted=await seal(env,newSession);
     return redirect(ACCOUNT_URL+"?auth=signed-in",[
       clearFlow,cookie(SESSION_COOKIE,encrypted,SESSION_TTL)
     ]);
   }catch(error){
-    console.error("WorkOS callback error",error?.message||"unknown");
-    return errorRedirect();
+    console.error("WorkOS session cookie failed",error?.name||"UnknownError");
+    return errorRedirect("session_cookie");
   }
 }
 export async function authSession(request,env) {
