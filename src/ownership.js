@@ -7,7 +7,7 @@ const WORKOS_ISSUER="https://api.workos.com";
 // a verified token confirm this exact default app issuer. WorkOS's per-app
 // client_id claim is separately required to match our own Client ID.
 const WORKOS_DEFAULT_APP_ISSUER=
-  "https://api.workos.com/user_management/client_01M7394ABJ2RKOKXTC3FKZV7NH";
+  "https://api.workos.com/user_management/client_01M7394ABJ2RK0KXTC3FKZV7NH";
 // Exact Production AuthKit tenant from the configured WorkOS hosted login.
 // Never accept an arbitrary *.authkit.app issuer from unverified JWT claims.
 const WORKOS_HOSTED_ISSUER="https://illuminated-marble-11.authkit.app";
