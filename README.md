@@ -459,3 +459,38 @@ case in admin, and confirm its `/media/<id>` URL remains 404 to guests;
 confirm owners with valid guest keys or signed-in matching accounts can
 preview hidden photos, while outsiders cannot. Verify full image opens via
 its preview, and avoid public announcements until moderation works.
+
+## Account/guest posting choice and one-click ownership transfer (2026-11-10)
+
+**Posting a case:** Signed-in users see "Posting to your account" on
+`/nh/submit/` and new incidents are assigned to their internal public-member
+ID using the existing JWT-authenticated `/api/incidents` endpoint. The
+signed-in user may explicitly select "Post as a guest instead", in which case
+the browser intentionally omits Authorization and the Worker returns a
+private guest management capability. Signed-out visitors still post as guests
+without any account requirement. Submission and report Turnstile protections,
+limits, validation, photo processing, and admin review are unchanged.
+
+**Claiming earlier guest cases:** `/nh/my-submissions/` initializes the
+optional WorkOS client. After the saved guest management capability has been
+verified by the owner GET endpoint, a signed-in user sees "Add to my account"
+for that case. User confirmation precedes an authenticated
+`POST /api/owner/incidents/:id/claim` with the private guest-key header.
+The existing Worker update is atomic and checks for unclaimed ownership and
+matching key hash. A successful response removes the revoked guest key from
+browser storage and updates the list. Failure leaves the existing private
+guest link untouched. Claims occur one case at a time, never automatically.
+
+**Acceptance tests:** (1) anonymous submission returns a guest management
+link and appears under My Submissions; (2) signed-in normal submission appears
+under My Account > My Incidents and is editable; (3) signed-in guest-option
+submission returns a private guest link, not automatic account ownership;
+(4) a previously saved, verified guest post can be explicitly transferred to
+the signed-in account and disappears from the saved guest list; (5) the
+revoked guest management link no longer works; (6) another account, no JWT,
+or invalid guest key cannot claim the case; (7) public voting and reporting
+remain available without signing in.
+
+No D1 migration or additional WorkOS/Cloudflare secrets are required. A
+GitHub merge is not proof of a successful production deployment or manual
+browser sign-in test.
