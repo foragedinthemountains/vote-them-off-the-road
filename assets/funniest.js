@@ -16,6 +16,20 @@
     timeZone:"America/New_York",month:"short",day:"numeric",year:"numeric"
   });
   let generation=0;
+  function showCoverPhoto(card,row) {
+    const photo=Array.isArray(row.photos)?row.photos[0]:null;
+    if(typeof photo?.url!=="string" ||
+       !/^\/media\/[A-Za-z0-9_-]{6,80}$/.test(photo.url)) return;
+    const link=el("a","weekly-card-photo");
+    link.href="/nh/?incident="+encodeURIComponent(row.id)+"#incidents";
+    link.setAttribute("aria-label","View full incident and all photos");
+    const image=el("img");
+    image.src=photo.url;
+    image.alt="Photo submitted with "+String(row.title||"this incident");
+    image.loading="lazy";
+    link.append(image);
+    card.append(link);
+  }
   async function refresh(offset=0){
     const req=++generation;
     const chosenCategory=categorySelect?.value||"";
@@ -70,6 +84,7 @@
             "Needs "+Math.max(0,data.minimum_votes-Number(row.total_votes))+
             " more reactions or duel points to qualify" :
             "Needs a majority of Funny reactions to qualify";
+        showCoverPhoto(card,row);
         card.append(el("p","weekly-qualification",qualification));
         const controls=el("div","weekly-card-actions");
         const voteLink=el("a","jury-next-button","😂 React to this case");
