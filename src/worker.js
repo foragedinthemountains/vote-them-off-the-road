@@ -1456,7 +1456,9 @@ async function accountMyIncidents(request,env){
   if(auth.error)return auth.error;
   const rows=await env.DB.prepare(
     "SELECT i.id,i.title,i.category,i.status,i.created_at,i.updated_at,"+
-    "(SELECT COUNT(*) FROM incident_media m WHERE m.incident_id=i.id) AS photos "+
+    "(SELECT COUNT(*) FROM incident_media m WHERE m.incident_id=i.id) AS photos, "+
+    "(SELECT m.id FROM incident_media m WHERE m.incident_id=i.id AND m.media_type='image' "+
+    "ORDER BY m.display_order ASC LIMIT 1) AS cover_photo_id "+
     "FROM incident_ownership o JOIN incidents i ON i.id=o.incident_id "+
     "WHERE o.owner_user_id=? ORDER BY i.created_at DESC LIMIT 200"
   ).bind(auth.identity.userId).all();
