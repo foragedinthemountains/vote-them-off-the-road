@@ -1,6 +1,9 @@
 
 "use strict";
 (() => {
+  const juryFetch=(path,options)=>
+    window.VTORAccounts?.juryFetch?
+      window.VTORAccounts.juryFetch(path,options):fetch(path,options);
   const battleStatus=document.querySelector("#battle-status");
   const battleOptions=document.querySelector("#battle-options");
   const battleNext=document.querySelector("#battle-next");
@@ -16,7 +19,7 @@
     return item;
   };
   async function requestJSON(path,options={}){
-    const response=await fetch(path,{cache:"no-store",credentials:"same-origin",...options});
+    const response=await juryFetch(path,{cache:"no-store",credentials:"same-origin",...options});
     const result=await response.json();
     if(!response.ok)throw Error(result.error||"Unable to complete this jury action");
     return result;
