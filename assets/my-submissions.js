@@ -86,7 +86,7 @@
       });
     }
   }
-  importForm?.addEventListener("submit", event => {
+  importForm?.addEventListener("submit", async event => {
     event.preventDefault();
     const parsed = store.fromPrivateLink(importInput.value);
     if (!parsed) {
@@ -94,14 +94,44 @@
         "Paste a complete private management link from votethemofftheroad.com.";
       return;
     }
-    if (!store.save(parsed.id, parsed.key)) {
-      importStatus.textContent = "Could not save the link in this browser.";
-      return;
+    const button = importForm.querySelector('button[type="submit"]');
+    if (button.disabled) return;
+    button.disabled = true;
+    importStatus.textContent = "Checking private management permission…";
+    try {
+      const response = await fetch(
+        "/api/owner/incidents/" + encodeURIComponent(parsed.id), {
+          headers: {
+            "X-Incident-Manage-Key": parsed.key,
+            "Accept": "application/json"
+          },
+          credentials: "same-origin",
+          cache: "no-store"
+        }
+      );
+      if (!response.ok) {
+        importStatus.textContent = response.status === 403 || response.status === 404 ?
+          "This link does not grant guest management access to that incident." :
+          "Could not verify this link right now. Try again later.";
+        return;
+      }
+      const data = await response.json();
+      if (data.owner_access !== "guest" || data.incident?.id !== parsed.id) {
+        importStatus.textContent = "The response did not confirm guest ownership.";
+        return;
+      }
+      if (!store.save(parsed.id, parsed.key, data.incident.title || "")) {
+        importStatus.textContent = "Could not save the link in this browser.";
+        return;
+      }
+      importInput.value = "";
+      importStatus.textContent = "Verified! Private link saved in this browser.";
+      render();
+    } catch {
+      importStatus.textContent = "Could not verify the link. Check your connection.";
+    } finally {
+      button.disabled = false;
     }
-    importInput.value = "";
-    importStatus.textContent =
-      "Private link saved on this browser. Its access will be checked below.";
-    render();
   });
   render();
 })();
