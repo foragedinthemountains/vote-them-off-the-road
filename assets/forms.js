@@ -160,6 +160,8 @@
     heading.textContent="Your incident is posted!";
     panel.append(heading);
     if(result.owner_type==="guest"&&result.management_token){
+      const saved=window.VTORGuestSubmissions?.save(result.id,result.management_token,
+        form.querySelector("#title")?.value || "");
       const origin=location.origin;
       const privateLink=origin+"/nh/manage/?id="+encodeURIComponent(result.id)+
         "#key="+encodeURIComponent(result.management_token);
@@ -184,6 +186,14 @@
       open.href=privateLink;open.className="owner-private-link";
       open.rel="noreferrer";open.textContent="Manage this incident ↗";
       panel.append(description,input,copy,open);
+      const note=document.createElement("p");
+      note.textContent=saved?
+        "Also saved in this browser under My Submissions. Keep a backup of your private link in case browser data is cleared.":
+        "This browser could not save the link. Copy it now to avoid losing access.";
+      const savedPage=document.createElement("a");
+      savedPage.href="/nh/my-submissions/";
+      savedPage.textContent="Go to My Submissions";
+      panel.append(note,savedPage);
     }else if(result.owner_type==="account"){
       const p=document.createElement("p");
       p.textContent="This incident belongs to your account. You can edit or remove it from My Incidents.";
