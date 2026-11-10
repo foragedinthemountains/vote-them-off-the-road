@@ -1453,26 +1453,91 @@ async function accountXP(request,env){
   const auth=await publicAccountIdentity(request,env);
   if(auth.error)return auth.error;
   if(!(await xpSchemaReady(env)))
-    return json({ready:false,message:"Jury XP becomes available after migration 0005."});
-  // One event key contributes once even if the owner links two browsers
-  // that each previously earned the same case or challenge XP.
-  const [total,browsers]=await Promise.all([
+    return json({ready:false,message:"Jury XP is not available yet."});
+  const userId=auth.identity.userId;
+  const key=await accountJuryKey(userId);
+  const vt=await activeVoteTable(env);
+  const linked="(SELECT voter_key_hash FROM account_voter_links WHERE owner_user_id=?)";
+  // Only an authenticated account's own canonical key and explicitly linked
+  // browser keys are ever included. Duplicate browser votes count once.
+  const [total,browsers,verdicts,activity,daysResult,history]=await Promise.all([
     env.DB.prepare(
       "SELECT COALESCE(SUM(xp),0) AS xp FROM ("+
-      "SELECT MAX(e.xp) AS xp FROM jury_xp_events e "+
-      "WHERE e.voter_key_hash=? OR e.voter_key_hash IN "+
-      "(SELECT l.voter_key_hash FROM account_voter_links l WHERE l.owner_user_id=?) "+
-      "GROUP BY e.event_key)"
-    ).bind(await accountJuryKey(auth.identity.userId),auth.identity.userId).first(),
+      "SELECT MAX(e.xp) AS xp FROM jury_xp_events e WHERE "+
+      "e.voter_key_hash=? OR e.voter_key_hash IN "+linked+
+      " GROUP BY e.event_key)"
+    ).bind(key,userId).first(),
     env.DB.prepare(
       "SELECT COUNT(*) AS n FROM account_voter_links WHERE owner_user_id=?"
-    ).bind(auth.identity.userId).first()
+    ).bind(userId).first(),
+    env.DB.prepare(
+      "SELECT COUNT(DISTINCT incident_id) AS n FROM "+vt+" WHERE "+
+      "(voter_key_hash=? OR voter_key_hash IN "+linked+")"
+    ).bind(key,userId).first(),
+    env.DB.prepare(
+      "SELECT kind,COUNT(*) AS n FROM ("+
+      "SELECT event_key,kind FROM jury_xp_events WHERE "+
+      "(voter_key_hash=? OR voter_key_hash IN "+linked+") "+
+      "GROUP BY event_key) GROUP BY kind"
+    ).bind(key,userId).all(),
+    env.DB.prepare(
+      "SELECT DISTINCT eastern_day FROM jury_xp_events WHERE "+
+      "(voter_key_hash=? OR voter_key_hash IN "+linked+") "+
+      "AND eastern_day>=? ORDER BY eastern_day DESC LIMIT 366"
+    ).bind(key,userId,shiftDateKey(easternDateKey(),-365)).all(),
+    env.DB.prepare(
+      "SELECT id,title,category,choice,created_at FROM ("+
+      "SELECT i.id,i.title,i.category,v.choice,v.created_at,"+
+      "ROW_NUMBER() OVER (PARTITION BY v.incident_id ORDER BY "+
+      "CASE WHEN v.voter_key_hash=? THEN 0 ELSE 1 END,"+
+      "v.created_at DESC) AS rank_no "+
+      "FROM "+vt+" v JOIN incidents i ON i.id=v.incident_id "+
+      "WHERE i.status='published' AND i.state_code='NH' AND ("+
+      "v.voter_key_hash=? OR v.voter_key_hash IN "+linked+")) "+
+      "WHERE rank_no=1 ORDER BY created_at DESC LIMIT 12"
+    ).bind(key,key,userId).all()
   ]);
   const xp=Number(total?.xp||0);
   const rank=[...XP_LEVELS].reverse().find(level=>xp>=level.xp)||XP_LEVELS[0];
   const next=XP_LEVELS.find(level=>xp<level.xp)||null;
+  const activityByKind=Object.fromEntries((activity.results||[])
+    .map(row=>[row.kind,Number(row.n||0)]));
+  const days=new Set((daysResult.results||[]).map(row=>row.eastern_day)
+    .filter(day=>typeof day==="string" && /^\d{4}-\d{2}-\d{2}$/.test(day)));
+  const today=easternDateKey();
+  let day=days.has(today)?today:shiftDateKey(today,-1);
+  let streak=0;
+  while(streak<366 && days.has(day)){
+    streak++;
+    day=shiftDateKey(day,-1);
+  }
+  const voteCount=Number(verdicts?.n||0);
+  const guessCount=activityByKind.verdict_guess||0;
+  const battleCount=activityByKind.battle||0;
+  const achievementSpecs=[
+    ["first-vote","⚖️","First Verdict","Cast your first verdict",voteCount,1],
+    ["ten-votes","✅","Regular Juror","Vote on 10 different incidents",voteCount,10],
+    ["fifty-votes","🏅","Road Watcher","Vote on 50 different incidents",voteCount,50],
+    ["first-guess","🎯","Verdict Predictor","Play Guess the Verdict",guessCount,1],
+    ["five-battles","🥊","Head-to-Head Referee","Complete five jury duels",battleCount,5],
+    ["three-day-streak","🔥","On a Roll","Reach a current three-day streak",streak,3],
+    ["hundred-xp","⭐","Century Club","Earn 100 Jury XP",xp,100],
+    ["thousand-xp","👑","Jury Veteran","Earn 1,000 Jury XP",xp,1000]
+  ];
+  const achievements=achievementSpecs.map(([id,icon,title,detail,value,target])=>({
+    id,icon,title,detail,progress:Math.min(value,target),target,
+    earned:value>=target
+  }));
   return json({ready:true,xp,rank,next_rank:next,
-    linked_browsers:Number(browsers?.n||0)});
+    xp_to_next:next?next.xp-xp:0,
+    linked_browsers:Number(browsers?.n||0),
+    verdicts:voteCount,active_days:days.size,current_streak:streak,
+    achievements,
+    recent_votes:(history.results||[]).map(row=>({
+      id:row.id,title:row.title,category:row.category,
+      choice:row.choice,created_at:Number(row.created_at||0)
+    }))
+  });
 }
 async function accountMyIncidents(request,env){
   const auth=await publicAccountIdentity(request,env);

@@ -37,3 +37,57 @@
 .owner-case-photo img{display:block;width:100%;height:210px;object-fit:contain}
 .owner-photos a{display:inline-flex;align-items:center;justify-content:center;max-width:100%;border-radius:9px;overflow:hidden}
 @media(max-width:550px){.owner-case-photo{max-width:100%}}
+
+
+/* Compact juror profile. Designed for account views from phone to desktop. */
+.jury-profile-heading{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin:0 0 18px}
+.jury-profile-heading h2{margin:2px 0 0}
+.jury-profile-heading .btn{font-size:13px;white-space:nowrap}
+.jury-profile-eyebrow{display:block;font-size:11px;font-weight:900;letter-spacing:.13em;color:#5d675e}
+.jury-profile-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:18px 0}
+.jury-profile-stat{display:flex;flex-direction:column;gap:5px;background:#f5f1e5;border:1px solid #d8cfb9;border-radius:13px;padding:18px;min-width:0}
+.jury-profile-stat-icon{font-size:23px;line-height:1}
+.jury-profile-stat strong{font-size:clamp(24px,3.7vw,38px);line-height:1.1;color:#19372d;overflow-wrap:anywhere}
+.jury-profile-stat-label{font-size:12px;font-weight:750;color:#526157}
+.jury-profile-rank{padding:22px;margin:0 0 24px;background:#1e3931;border-radius:15px;color:#faf7e9}
+.jury-profile-rank-head{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.jury-profile-rank-title{display:flex;align-items:center;gap:13px}
+.jury-profile-rank-icon{font-size:36px;line-height:1}
+.jury-profile-rank-title small{display:block;font-size:10px;letter-spacing:.1em;font-weight:850;color:#e0d5ae;margin-bottom:2px}
+.jury-profile-rank-title strong{display:block;font-size:clamp(18px,3vw,26px);line-height:1.25}
+.jury-profile-total{font-size:clamp(21px,3.5vw,32px);white-space:nowrap;color:#f7ce55}
+.jury-profile-meter{height:12px;border-radius:999px;background:#4d6257;overflow:hidden;margin:20px 0 9px}
+.jury-profile-meter-fill{display:block;height:100%;border-radius:inherit;background:#f7c744}
+.jury-profile-next{font-size:12px;color:#eee4c9;margin:0}
+.jury-profile-sections{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:24px}
+.jury-profile-section{min-width:0}
+.jury-profile-section h3{font-size:clamp(21px,3vw,27px);margin:0 0 13px}
+.jury-profile-achievements{display:grid;gap:9px}
+.jury-profile-achievement{display:grid;grid-template-columns:32px minmax(0,1fr);gap:8px 12px;align-items:center;padding:12px;border:1px solid #d9d3c3;border-radius:11px;background:#f7f5ed}
+.jury-profile-achievement.earned{background:#fdf5dd;border-color:#ddc776}
+.jury-profile-achievement.locked{opacity:.72}
+.jury-profile-achievement-icon{font-size:24px;line-height:1.2;text-align:center;grid-row:span 2}
+.jury-profile-achievement-copy{min-width:0}
+.jury-profile-achievement-copy strong{display:block;font-size:14px;color:#253a30}
+.jury-profile-achievement-copy span{display:block;font-size:11px;color:#627065;margin-top:3px}
+.jury-profile-achievement-progress{grid-column:2;font-weight:800;font-size:11px;color:#41664c}
+.jury-profile-vote{display:flex;gap:12px;align-items:start;justify-content:space-between;padding:13px 4px;border-bottom:1px solid #e2ddcf;text-decoration:none;color:#1d342b}
+.jury-profile-vote:hover,.jury-profile-vote:focus-visible{background:#f7f2e5}
+.jury-profile-vote-copy{min-width:0;flex:1}
+.jury-profile-vote-copy strong{display:block;font-size:14px;line-height:1.35;overflow-wrap:anywhere}
+.jury-profile-vote-copy>span{display:block;font-size:11px;color:#5f6d62;margin-top:4px}
+.jury-profile-vote-meta{text-align:right;min-width:76px}
+.jury-profile-vote-meta strong{display:block;font-size:12px;color:#286246}
+.jury-profile-vote-meta>span{display:block;font-size:11px;color:#647063;margin-top:4px}
+@media(max-width:730px){
+  .jury-profile-sections{grid-template-columns:minmax(0,1fr);gap:26px}
+  .jury-profile-stats{gap:8px}
+  .jury-profile-stat{padding:13px}
+  .jury-profile-stat strong{font-size:clamp(21px,5vw,30px)}
+}
+@media(max-width:420px){
+  .jury-profile-stats{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .jury-profile-stat:last-child{grid-column:span 2}
+  .jury-profile-heading .btn{width:100%;text-align:center}
+  .jury-profile-rank{padding:16px}
+}
