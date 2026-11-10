@@ -75,6 +75,29 @@
     if (value !== undefined && value !== null) node.textContent = String(value);
     return node;
   }
+  function renderPhotoGallery(item, photos, context) {
+    if (!Array.isArray(photos) || !photos.length) return;
+    const gallery=el("div","admin-photo-gallery");
+    gallery.setAttribute("aria-label",context+" photos");
+    for (let i=0;i<photos.length;i++) {
+      const photo=photos[i];
+      // These admin-only URLs are authenticated by Cloudflare Access.
+      if (typeof photo?.url!=="string" ||
+          !/^\/admin\/media\/[A-Za-z0-9_-]{6,80}$/.test(photo.url)) continue;
+      const link=el("a","admin-photo-link");
+      link.href=photo.url;
+      link.target="_blank";
+      link.rel="noopener noreferrer";
+      link.title="Open full photo "+(i+1);
+      const image=el("img");
+      image.src=photo.url;
+      image.alt=context+" photo "+(i+1)+" of "+photos.length;
+      image.loading="lazy";
+      link.append(image);
+      gallery.append(link);
+    }
+    if (gallery.childElementCount) item.append(gallery);
+  }
   function label(status) {
     return (status || "").replace(/_/g, " ").replace(/^./, c => c.toUpperCase());
   }
@@ -144,6 +167,7 @@
           "⚠ AUTO-HIDDEN · PRIORITY REVIEW"));
       }
       item.append(heading, meta, incident);
+      renderPhotoGallery(item,report.photos,"Reported incident");
       if (report.details) item.append(el("p", "admin-details", report.details));
       if (report.contact_email) item.append(el("p", "admin-contact", "Reply email: " + report.contact_email));
       const actions = el("div", "admin-actions");
@@ -194,6 +218,7 @@
         " pass · 😂 " + (incident.funny_votes || 0) + " funny · " +
         incident.pending_reports + " pending reports");
       item.append(heading, meta, counts);
+      renderPhotoGallery(item,incident.photos,"Incident");
       if (incident.auto_hidden_at && incident.status === "hidden") {
         item.classList.add("admin-priority");
         item.append(el("p", "admin-priority-label", "⚠ AUTO-HIDDEN · REVIEW FIRST"));
