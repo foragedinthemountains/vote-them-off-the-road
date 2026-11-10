@@ -78,7 +78,7 @@ async function verifiedWorkosSubject(token,clientId){
   const issuerAllowed=issuer===WORKOS_ISSUER ||
     issuer===WORKOS_ISSUER+"/user_management/"+clientId;
   if(header.alg!=="RS256" || typeof header.kid!=="string" ||
-     (header.typ && header.typ!=="JWT") ||
+     (header.typ && !["JWT","at+jwt","application/at+jwt"].includes(header.typ)) ||
      !issuerAllowed ||
      claims.client_id!==clientId ||
      typeof claims.sub!=="string" ||
