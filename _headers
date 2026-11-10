@@ -3,3 +3,15 @@
   Referrer-Policy: strict-origin-when-cross-origin
   X-Frame-Options: DENY
   Permissions-Policy: camera=(), microphone=(), geolocation=()
+
+/nh/manage/*
+  Cache-Control: no-store
+  Referrer-Policy: no-referrer
+
+/nh/my-submissions/*
+  Cache-Control: no-store
+  Referrer-Policy: no-referrer
+
+/nh/submit/*
+  Cache-Control: no-store
+  Referrer-Policy: no-referrer
