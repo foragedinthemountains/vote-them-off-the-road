@@ -152,7 +152,7 @@
       voteFeedback.setAttribute("role", "status");
       voteFeedback.setAttribute("aria-live", "polite");
       const voteHint = element("p", "feed-vote-hint",
-        "One reaction per browser. Changing your choice does not earn another XP reward.");
+        "One reaction per account when signed in, or per browser as a guest. Changing your choice earns no extra XP.");
       let myVerdictButton = null;
       function updateVoteButtons() {
         offButton.textContent = "🚫 Vote Them Off · " + (Number(item.off_votes) || 0);
