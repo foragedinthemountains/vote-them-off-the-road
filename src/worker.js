@@ -1,6 +1,6 @@
 import {ownershipSchemaReady,publicAccountsReady,getPublicAccountUser,
   hashManagementToken,createManagementToken} from "./ownership.js";
-import {authConfigReady,authStart,authCallback,authSession,authLogout}
+import {authConfigReady,authReadiness,authStart,authCallback,authSession,authLogout}
   from "./public-session.js";
 // Full-stack Cloudflare Worker: public reading, Turnstile-protected text posts and reports.
 // Submission endpoints fail closed until Turnstile secrets and a rate limiter are configured.
@@ -1827,6 +1827,12 @@ async function permanentlyDeleteIncident(env, id, identity) {
 }
 
 async function adminApi(request, env, path, identity) {
+  // Cloudflare Access authentication occurs before this code path; emit
+  // booleans only, never session encryption material or API key fragments.
+  if (path === "/admin/api/account-readiness" && request.method === "GET") {
+    const readiness=await authReadiness(env);
+    return json({enabled:readiness.enabled,...readiness.checks});
+  }
   if (path === "/admin/api/me" && request.method === "GET") {
     return json({ ok: true, email: identity.email,
       alerts_configured: Boolean(env.REPORT_ALERT_EMAIL && env.ADMIN_EMAIL),
