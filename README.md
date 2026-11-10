@@ -423,3 +423,39 @@ It does NOT accept arbitrary issuers. It still validates the application
 `client_id`, WorkOS JWKS signature, user and session identity, timing,
 non-impersonation and secure session-cookie flow. No WorkOS or Cloudflare
 secret changes are required for this application-issuer mismatch.
+
+
+## Incident photo presentation and private review (2026-11-10)
+
+- Incident photos keep their original composition in every display (feed, featured
+  case, battle, weekly awards, funniest awards, admin moderation, and owner
+  management). Photos use `object-fit:contain` rather than cropping to fill
+  a fixed rectangle; neutral letterboxing is expected for unusual aspect ratios.
+  Upload optimization was already aspect-ratio-preserving, so previously
+  stored photos need no migration or re-upload.
+- Weekly and funniest JSON APIs now include the same `photos[]` descriptors as
+  public case cards. These boards query **published** incidents only.
+- The protected admin dashboard now shows up to five linked photos in both
+  incident cards and report/removal-request cards, including cases that were
+  hidden or removed from public view. The media URLs are
+  `/admin/media/<media-id>`, served ONLY after verifying the administrator's
+  existing Cloudflare Access JWT. Public `/media/<media-id>` continues to
+  return 404 if the parent incident is not published.
+- Signed-in account case lists show the first photo; all photos are visible
+  in Manage Incident. Guests with their private capability key can view photos
+  in My Submissions and Manage Incident, even if the case is hidden.
+  Private owner images use `GET /api/owner/media/<media-id>` with the same
+  guest-management header or verified WorkOS Bearer token that authorizes the
+  parent incident. JavaScript fetches them into temporary blob URLs so those
+  credentials are never placed in public URLs.
+- All image responses are private and no-store. The owner views revoke
+  temporary blob URLs when re-rendered or leaving the page. No schema migration
+  or new Cloudflare binding is required.
+
+**Rollout checks:** Confirm the new Worker deployment succeeds; inspect a
+portrait and landscape photo in the public feed, featured/battle sections,
+weekly/funniest cards, admin reports and admin incidents; inspect a hidden
+case in admin, and confirm its `/media/<id>` URL remains 404 to guests;
+confirm owners with valid guest keys or signed-in matching accounts can
+preview hidden photos, while outsiders cannot. Verify full image opens via
+its preview, and avoid public announcements until moderation works.
