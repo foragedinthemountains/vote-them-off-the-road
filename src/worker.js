@@ -1,5 +1,7 @@
 import {ownershipSchemaReady,publicAccountsReady,getPublicAccountUser,
   hashManagementToken,createManagementToken} from "./ownership.js";
+import {authConfigReady,authStart,authCallback,authSession,authLogout}
+  from "./public-session.js";
 // Full-stack Cloudflare Worker: public reading, Turnstile-protected text posts and reports.
 // Submission endpoints fail closed until Turnstile secrets and a rate limiter are configured.
 const cacheHeaders = { "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" };
@@ -2021,6 +2023,10 @@ export default {
     const url = new URL(request.url);
     const { pathname } = url;
     if (pathname === "/admin") return Response.redirect(SITE_ORIGIN + "/admin/", 302);
+    if (pathname === "/nh/account/" &&
+        (url.searchParams.has("code") || url.searchParams.has("error"))) {
+      return authCallback(request,env);
+    }
     if (pathname.startsWith("/admin/")) return adminRequest(request, env, pathname);
     // Initialize the anonymous jury cookie on the HTML response, BEFORE
     // the page starts its parallel feed, XP, streak and game requests.
@@ -2055,8 +2061,11 @@ export default {
           category_labels: behaviorCategories,
           turnstile_site_key: enabled ? env.TURNSTILE_SITE_KEY : null }));
       }
+      if (pathname === "/api/auth/start")return authStart(request,env);
+      if (pathname === "/api/auth/session")return authSession(request,env);
+      if (pathname === "/api/auth/logout")return authLogout(request,env);
       if (pathname === "/api/account/config" && request.method === "GET"){
-        const enabled=await publicAccountsReady(env);
+        const enabled=await authConfigReady(env);
         return json({enabled,ownership_enabled:await ownershipSchemaReady(env),
           provider:enabled?"workos":null,
           client_id:enabled?env.WORKOS_CLIENT_ID:null});

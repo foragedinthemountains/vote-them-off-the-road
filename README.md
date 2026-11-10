@@ -302,6 +302,13 @@ XP is tracked by anonymous hashed browser identifier, not verified people. Switc
 
 **Cost:** WorkOS AuthKit currently advertises 1 million monthly active users free, then $2,500/month per additional million MAUs. Use the default WorkOS hosted AuthKit domain (no paid custom domain) and ordinary email/social login. Cloudflare Workers/D1/R2 usage is billed separately. Free tiers and prices can change; `public_members` separates site user identity from the provider for future migration.
 
+### Historical setup notes (superseded by Phase 6B below)
+
+**Do not use the old browser-only WorkOS activation steps below.** The
+Production implementation now requires a WorkOS API key and an AES session
+key as Cloudflare secrets. Follow the current **Phase 6B: Production WorkOS
+AuthKit, Worker-managed sessions** section at the end of this README.
+
 ### Deferred activation steps (site owner at computer)
 
 1. Wait until the GitHub-connected Cloudflare Worker deployment containing the WorkOS conversion is **Ready**. Do not run migrations against stale Worker builds. Do not paste secret API keys into GitHub or chats.
@@ -315,7 +322,7 @@ XP is tracked by anonymous hashed browser identifier, not verified people. Switc
    ```
    After up to 30s, `https://votethemofftheroad.com/api/account/config` should return `ownership_enabled:true,enabled:false`. New guest posts will receive an **unrecoverable private management link**; guests can edit/withdraw without registering.
 4. Create a **WorkOS** organization/application at <https://dashboard.workos.com>. Under WorkOS AuthKit / User Management, choose email and Google sign-in as desired. In WorkOS application settings, add **redirect URI** `https://votethemofftheroad.com/nh/account/`, **allowed origin** `https://votethemofftheroad.com`, and the same safe login landing page as its initiate-login URI if prompted. For logout return URLs, allow `https://votethemofftheroad.com/nh/account/`. Use the **default hosted AuthKit domain** to avoid custom-domain fees.
-5. Copy WorkOS **Client ID** (format `client_...`). In Cloudflare Workers & Pages, add it as a public Worker **variable** named `WORKOS_CLIENT_ID`. No `WORKOS_API_KEY` is needed for this browser-SDK + verified JWT integration. Do not configure any settings for the previous authentication provider. The JWT verification uses WorkOS's published JWKS and checks `iss`, `client_id`, `sub`, `sid`, `iat`, `exp`, and signature.
+5. Copy WorkOS **Client ID** (format `client_...`). In Cloudflare Workers & Pages, add it as a public Worker **variable** named `WORKOS_CLIENT_ID`. **Superseded:** WorkOS browser-SDK mode no longer ships; follow Phase 6B for required private Worker secrets. Do not configure any settings for the previous authentication provider. The JWT verification uses WorkOS's published JWKS and checks `iss`, `client_id`, `sub`, `sid`, `iat`, `exp`, and signature.
 6. Deploy/save, allow up to 30s, and verify `/api/account/config` now reports `enabled:true,provider:"workos",client_id:"client_..."`. Visit `/nh/account/`, sign up, sign out/in, then create, edit, claim, and withdraw test cases. Test from a second unrelated browser; an incident ID alone must never allow author management.
 
 ### Implementation details
@@ -336,3 +343,64 @@ XP is tracked by anonymous hashed browser identifier, not verified people. Switc
 4. Claim a guest case while signed in and possessing its original private management link; the old token must stop working. A different member cannot access the case.
 5. Link anonymous browser Jury XP, confirm the account-level XP is not duplicated when another browser has identical event keys. Different browsers' Off/Pass votes **remain distinct** until an explicit canonical vote-merging feature is built.
 6. Confirm account logins never grant access to `/admin/`, and guest voting remains available for site visitors who never sign in.
+
+## Phase 6B: Production WorkOS AuthKit, Worker-managed sessions (2026-11-10)
+
+The former browser-only WorkOS SDK integration was replaced by a server-managed
+OAuth authorization-code flow with PKCE in `src/public-session.js`.
+The visitor receives a **Secure, HttpOnly, SameSite=Lax, AES-256-GCM sealed**
+application session cookie. WorkOS access tokens are returned only to same-origin
+JavaScript in memory for the existing signed API calls; **refresh tokens and the
+WorkOS API key never enter JavaScript or the public GitHub repository**.
+
+The public WorkOS Production Client ID is configured as
+`WORKOS_CLIENT_ID=client_01M73AN7TQVNRBPSBTVB91DVAZ` in `wrangler.jsonc`.
+It is not a secret. Do not use the staging Client ID on production.
+
+**Before enabling accounts:** Under the existing Cloudflare Worker Settings >
+Variables and Secrets, add BOTH secrets:
+
+1. `WORKOS_API_KEY`: the WorkOS **Production API key** (`sk_live_...`).
+   Create it in WorkOS Production > API Keys. Keep secret, never paste in chats.
+2. `WORKOS_SESSION_KEY`: a cryptographically random **32-byte secret encoded
+   as exactly 64 hexadecimal characters**. Generate locally in Windows PowerShell
+   with `$b=New-Object byte[] 32; [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b); [BitConverter]::ToString($b).Replace('-','').ToLowerInvariant()`.
+   Save privately in the Cloudflare Secret field, never commit to GitHub.
+
+**Deployment order:** deploy the GitHub Worker update first, verify
+`/api/account/config` reports `enabled:false` until both secrets exist,
+add secrets, then confirm `enabled:true`. The Worker fails closed if either
+secret is missing or malformed. No new D1 migration is required after 0006.
+Production WorkOS application Redirect URI must be
+`https://votethemofftheroad.com/nh/account/` (exact, including slash).
+Default sign-out URI can be the same. WorkOS CORS configuration is not required
+for the server-side flow. No paid custom Authentication API domain is needed.
+
+**Routes:**
+- `GET /api/auth/start?mode=signup|signin`: creates 10-minute encrypted PKCE
+  verifier + random OAuth state cookie, redirects to hosted WorkOS AuthKit.
+- `GET /nh/account/?code=...&state=...`: Worker intercepts the authorized
+  callback, checks sealed state and code verifier, exchanges the code using the
+  Production WorkOS API key, verifies the WorkOS JWT against JWKS and checks the
+  user identity, and sets a sealed application session cookie. Redirects back
+  without the code in the URL.
+- `GET /api/auth/session`: returns the signed-in user's current verified
+  access token and email to same-origin JavaScript, refreshes and re-seals as
+  needed; does not expose refresh credentials. Returns `signed_in:false` if no
+  session.
+- `POST /api/auth/logout`: exact-origin protected, clears app cookies,
+  directs browser through WorkOS session logout. No public accounts can access
+  the separate Cloudflare Access-protected `/admin/`.
+
+**Acceptance tests before wider rollout:** guest posting and voting still work
+with accounts disabled; no sign-in UI if either secret is missing; sign up,
+sign in, reload, manage account-owned post, sign out and verify API 401 without
+bearer token, claim a guest incident while signed in using its secret, reject a
+wrong guest key/second account; expire access token and confirm refresh works.
+Do not treat a GitHub merge as proof of live deployment. Browser login cannot
+be confirmed without Production WorkOS credentials configured in Cloudflare.
+
+**Maintenance:** rotating `WORKOS_SESSION_KEY` immediately logs out existing
+users. Only rotate it deliberately (or during incident response). A seven-day
+application cookie cap applies; WorkOS may end the session sooner. Never store
+refresh tokens in localStorage.

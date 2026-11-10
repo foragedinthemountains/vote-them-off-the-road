@@ -36,7 +36,12 @@
     if(!user){
       loggedIn.hidden=true;incidentPanel.hidden=true;historyPanel.hidden=true;
       signIn.hidden=false;
-      status.textContent="Sign in or create a free account. You're also welcome to use the site as a guest.";
+      const callbackStatus=new URLSearchParams(location.search).get("auth");
+      status.textContent=callbackStatus==="failed"?
+        "Sign-in didn't finish. Please try again. If it keeps failing, check the WorkOS Production redirect and Cloudflare secrets.":
+        accounts.state.error?
+          "Sign-in service is temporarily unavailable. Guest posting and voting still work.":
+          "Sign in or create a free account. You're also welcome to use the site as a guest.";
       return;
     }
     signIn.hidden=true;loggedIn.hidden=false;

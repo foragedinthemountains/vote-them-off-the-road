@@ -18,7 +18,9 @@
       "/media/*",
       "/admin",
       "/admin/*",
-      "/nh/"
+      "/nh/",
+      "/nh/account/",
+      "/nh/account/*"
     ]
   },
   "d1_databases": [
@@ -56,7 +58,8 @@
     "ADMIN_ACCESS_AUD": "4ae58fdb0538f1ee78bee3e91d5ef3c5db576a15f2d54769e20015869cbe6a00",
     "ADMIN_ACCESS_TEAM": "dawn-bush-fcfd.cloudflareaccess.com",
     "AUTO_HIDE_REPORT_THRESHOLD": "5",
-    "WEEKLY_MIN_VOTES": "5"
+    "WEEKLY_MIN_VOTES": "5",
+    "WORKOS_CLIENT_ID": "client_01M73AN7TQVNRBPSBTVB91DVAZ"
   },
   "triggers": {
     "crons": [
