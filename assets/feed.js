@@ -1,5 +1,8 @@
 "use strict";
 (() => {
+  const juryFetch=(path,options)=>
+    window.VTORAccounts?.juryFetch?
+      window.VTORAccounts.juryFetch(path,options):fetch(path,options);
   const feed = document.querySelector("#incident-feed");
   const status = document.querySelector("#feed-status");
   const buttons = [...document.querySelectorAll("[data-feed-sort]")];
@@ -67,7 +70,7 @@
       setCategory(startingCategory, false, true);
     }
     // Keep the control enabled if the config request fails transiently.
-    fetch("/api/config", { cache: "no-store", credentials: "same-origin" })
+    juryFetch("/api/config", { cache: "no-store", credentials: "same-origin" })
       .then(response => response.ok ? response.json() : null)
       .then(config => {
         if (!config) return;
@@ -149,7 +152,7 @@
       voteFeedback.setAttribute("role", "status");
       voteFeedback.setAttribute("aria-live", "polite");
       const voteHint = element("p", "feed-vote-hint",
-        "One reaction per browser. Changing your choice does not earn another XP reward.");
+        "One reaction per account when signed in, or per browser as a guest. Changing your choice earns no extra XP.");
       let myVerdictButton = null;
       function updateVoteButtons() {
         offButton.textContent = "🚫 Vote Them Off · " + (Number(item.off_votes) || 0);
@@ -167,7 +170,7 @@
         funnyButton.disabled = true;
         voteFeedback.textContent = "Saving your vote…";
         try {
-          const response = await fetch("/api/incidents/" + encodeURIComponent(item.id) + "/vote", {
+          const response = await juryFetch("/api/incidents/" + encodeURIComponent(item.id) + "/vote", {
             method: "POST",
             headers: { "Content-Type": "application/json", "Accept": "application/json" },
             credentials: "same-origin",
@@ -331,7 +334,7 @@
     if (!append) status.textContent = "Loading " +
       (sort === "unvoted" ? "cases you haven't judged" : "incidents") + "…";
     try {
-      const response = await fetch(
+      const response = await juryFetch(
         `/api/incidents?state=NH&sort=${encodeURIComponent(sort)}&category=${encodeURIComponent(currentCategory)}&offset=${nextOffset}`,
         { headers: { Accept: "application/json" }, credentials: "same-origin", cache: "no-store" }
       );
@@ -344,7 +347,7 @@
       if (!append && sharedCaseId && sort !== "unvoted" && !currentCategory &&
           /^[a-zA-Z0-9_-]{6,80}$/.test(sharedCaseId) &&
           !incidents.some(i => i.id === sharedCaseId)) {
-        const single = await fetch("/api/incidents/" + encodeURIComponent(sharedCaseId),
+        const single = await juryFetch("/api/incidents/" + encodeURIComponent(sharedCaseId),
           { credentials: "same-origin", cache: "no-store" });
         if (single.ok) {
           const row = await single.json();

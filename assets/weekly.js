@@ -1,6 +1,9 @@
 
 "use strict";
 (() => {
+  const juryFetch=(path,options)=>
+    window.VTORAccounts?.juryFetch?
+      window.VTORAccounts.juryFetch(path,options):fetch(path,options);
   const grid=document.querySelector("#weekly-grid");
   const status=document.querySelector("#weekly-status");
   const tallies=document.querySelector("#category-tallies");
@@ -43,7 +46,7 @@
   async function loadProgress(){
     if(!progress)return;
     try{
-      const res=await fetch("/api/my-stats",{credentials:"same-origin",cache:"no-store"});
+      const res=await juryFetch("/api/my-stats",{credentials:"same-origin",cache:"no-store"});
       if(!res.ok)throw Error("Stats unavailable");
       const d=await res.json();
       nextReset=Number(d.next_reset_at);
@@ -86,7 +89,7 @@
           button.addEventListener("click",async()=>{
             button.disabled=true;
             try{
-              const response=await fetch("/api/jury/checkin",{
+              const response=await juryFetch("/api/jury/checkin",{
                 method:"POST",credentials:"same-origin",
                 headers:{"Content-Type":"application/json"},
                 body:"{}",cache:"no-store"
@@ -110,7 +113,7 @@
           save.addEventListener("click",async()=>{
             save.disabled=true;
             try{
-              const response=await fetch("/api/jury/streak-save",{
+              const response=await juryFetch("/api/jury/streak-save",{
                 method:"POST",credentials:"same-origin",
                 headers:{"Content-Type":"application/json"},
                 body:"{}",cache:"no-store"
@@ -203,7 +206,7 @@
     grid.replaceChildren();
     status.textContent="Loading jury results…";
     try{
-      const res=await fetch("/api/weekly-board?offset="+offset,{cache:"no-store"});
+      const res=await juryFetch("/api/weekly-board?offset="+offset,{cache:"no-store"});
       if(!res.ok)throw Error("Weekly results unavailable");
       const d=await res.json();
       if(!d.ready){

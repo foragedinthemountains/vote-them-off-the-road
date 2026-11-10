@@ -1,5 +1,8 @@
 "use strict";
 (() => {
+  const juryFetch=(path,options)=>
+    window.VTORAccounts?.juryFetch?
+      window.VTORAccounts.juryFetch(path,options):fetch(path,options);
   const panel = document.querySelector("#featured-case");
   if (!panel) return;
   let dayKey = null;
@@ -12,7 +15,7 @@
   };
   async function load() {
     try {
-      const response = await fetch("/api/featured-case", {
+      const response = await juryFetch("/api/featured-case", {
         cache: "no-store", credentials: "same-origin",
         headers: { Accept: "application/json" }
       });

@@ -1,5 +1,8 @@
 "use strict";
 (() => {
+  const juryFetch=(path,options)=>
+    window.VTORAccounts?.juryFetch?
+      window.VTORAccounts.juryFetch(path,options):fetch(path,options);
   const status=document.querySelector("#verdict-guess-status");
   const caseNode=document.querySelector("#verdict-guess-case");
   const reveal=document.querySelector("#verdict-guess-reveal");
@@ -20,7 +23,7 @@
   const names={off:"Vote Them Off",pass:"Give 'Em a Pass",funny:"That's Just Funny!"};
   let version=0;
   async function request(url,options={}){
-    const response=await fetch(url,{credentials:"same-origin",cache:"no-store",...options});
+    const response=await juryFetch(url,{credentials:"same-origin",cache:"no-store",...options});
     const body=await response.json();
     if(!response.ok)throw Error(body.error||"The jury game is temporarily unavailable.");
     return body;

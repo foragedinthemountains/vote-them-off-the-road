@@ -124,12 +124,13 @@
         card.append(manage);
         incidentList.append(card);
       }
-      linkButton.disabled=me.browser_linked||me.browser_linked_elsewhere;
-      linkButton.textContent=me.browser_linked?"✓ This browser is linked":
-        me.browser_linked_elsewhere?"Already linked to a different account":
-          "Link this browser's jury history";
+      linkButton.disabled=me.browser_linked_elsewhere;
+      linkButton.textContent=me.browser_linked_elsewhere?
+        "This browser's history belongs to another account":
+        me.browser_linked?"Sync new guest activity from this browser":
+          "Add this browser's guest jury history to my account";
       historyStatus.textContent=score.ready?
-        Number(score.xp||0).toLocaleString()+" linked-browser Jury XP · "+
+        Number(score.xp||0).toLocaleString()+" account Jury XP · "+
         (score.rank?.name||"Jury Member")+" · "+
         Number(score.linked_browsers||0)+" linked browser(s)":
         "Jury XP is not active yet.";
@@ -151,15 +152,20 @@
     });
   }
   linkButton?.addEventListener("click",async()=>{
+    if(!confirm("Add this browser's guest votes, XP, games and streaks to "+
+      "your signed-in account? Duplicate case votes won't count twice. "+
+      "Guest history moved into your account will no longer appear when "+
+      "you're signed out."))return;
     linkButton.disabled=true;
-    historyStatus.textContent="Linking this browser's jury history…";
+    historyStatus.textContent="Syncing guest jury history…";
     try{
       const result=await accounts.fetchAuthenticated(
         "/api/account/link-browser",{
           method:"POST",headers:{"Content-Type":"application/json"},body:"{}"
         });
-      historyStatus.textContent=result.message;
       await display();
+      historyStatus.textContent=result.message;
+      window.dispatchEvent(new Event("vtor:account-jury-synced"));
     }catch(error){
       historyStatus.textContent=error.message;linkButton.disabled=false;
     }

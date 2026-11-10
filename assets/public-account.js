@@ -3,10 +3,13 @@
 // or refresh token is exposed to JavaScript. Access tokens stay in memory only.
 (() => {
   const state={enabled:false,user:null,error:null};
-  let token=null,expiry=0,loading=null;
+  let token=null,expiry=0,loading=null,lastSessionCheck=0;
   async function session(force=false) {
     if(loading)return loading;
     if(!force && token && Date.now()<expiry-30000)return token;
+    // Guest browsers are anonymous by design. Avoid checking the login API
+    // on every public jury read when there is no signed-in account.
+    if(!force && !token && Date.now()-lastSessionCheck<60000)return null;
     loading=(async()=>{
       const response=await fetch("/api/auth/session",{
         method:"GET",credentials:"same-origin",cache:"no-store",
@@ -18,6 +21,7 @@
       token=data.signed_in?data.access_token:null;
       expiry=data.signed_in&&Number.isSafeInteger(data.expires_at)?
         data.expires_at*1000:0;
+      lastSessionCheck=Date.now();
       return token;
     })();
     try{return await loading;}finally{loading=null;}
@@ -62,6 +66,30 @@
     }
     throw Error("Please sign in again.");
   }
+  async function juryFetch(path,options={}){
+    // Every public jury request is still usable anonymously. Signed-in
+    // requests carry a short-lived WorkOS bearer so the Worker can recognize
+    // the same juror across devices; refresh credentials remain HttpOnly.
+    await ready;
+    const send=async(force=false)=>{
+      const access=state.enabled?await session(force).catch(error=>{
+        // A temporary auth outage must not block guest voting. But if the
+        // user was known signed in, never silently cast their vote as guest.
+        if(state.user)throw error;
+        return null;
+      }):null;
+      const headers=new Headers(options.headers||{});
+      if(access)headers.set("Authorization","Bearer "+access);
+      else headers.delete("Authorization");
+      return fetch(path,{...options,headers,
+        credentials:"same-origin",cache:"no-store"});
+    };
+    let response=await send();
+    if(response.status===401 && token){
+      response=await send(true);
+    }
+    return response;
+  }
   function getUser(){return state.user;}
   async function signIn(){
     await ready;
@@ -91,6 +119,6 @@
     location.assign(target.href);
   }
   window.VTORAccounts={
-    ready,state,getUser,signIn,signUp,signOut,getToken,fetchAuthenticated
+    ready,state,getUser,signIn,signUp,signOut,getToken,fetchAuthenticated,juryFetch
   };
 })();
