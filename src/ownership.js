@@ -2,6 +2,9 @@
 // WorkOS AuthKit is optional. Guest voting, posting and management need no account.
 // All stored ownership uses INTERNAL Vote Them Off the Road member IDs.
 const WORKOS_ISSUER="https://api.workos.com";
+// Exact Production AuthKit tenant from the configured WorkOS hosted login.
+// Never accept an arbitrary *.authkit.app issuer from unverified JWT claims.
+const WORKOS_HOSTED_ISSUER="https://illuminated-marble-11.authkit.app";
 const JWKS_ROOT="https://api.workos.com/sso/jwks/";
 let schemaCache={until:0,ready:false};
 const jwksCache=new Map();
@@ -76,14 +79,14 @@ async function verifiedWorkosSubject(token,clientId){
   // The client-specific value is documented for newer user-management tokens.
   const issuer=String(claims.iss||"").replace(/\/$/,"");
   const issuerAllowed=issuer===WORKOS_ISSUER ||
-    issuer===WORKOS_ISSUER+"/user_management/"+clientId;
+    issuer===WORKOS_ISSUER+"/user_management/"+clientId ||
+    issuer===WORKOS_HOSTED_ISSUER ||
+    issuer===WORKOS_HOSTED_ISSUER+"/user_management/"+clientId;
   // Keep each original security check, but throw fixed reason codes so a
   // failed login can be diagnosed without exposing tokens or user details.
   if(header.alg!=="RS256" || typeof header.kid!=="string" ||
      (header.typ && !["JWT","at+jwt","application/at+jwt"].includes(header.typ)))
     throw Error("WorkOS token header rejected");
-  if(!issuerAllowed)
-    throw Error("WorkOS token issuer rejected");
   if(claims.client_id!==clientId)
     throw Error("WorkOS token client rejected");
   if(typeof claims.sub!=="string" ||
@@ -114,6 +117,12 @@ async function verifiedWorkosSubject(token,clientId){
     "RSASSA-PKCS1-v1_5",publicKey,fromB64Url(parts[2]),signed
   );
   if(!valid)throw Error("Invalid WorkOS token signature");
+  // Inspect the issuer only after the WorkOS JWKS signature verifies.
+  // Issuer URLs are public metadata, never access tokens or secrets.
+  if(!issuerAllowed){
+    console.warn("Signed WorkOS token issuer does not match Production app",issuer);
+    throw Error("WorkOS token issuer rejected");
+  }
   return claims.sub;
 }
 async function findOrCreateInternalMember(env,subject){
