@@ -2,6 +2,7 @@
 (() => {
   const status=document.querySelector("#account-status");
   const panelTitle=document.querySelector("#account-panel-title");
+  const eyebrow=document.querySelector("#account-eyebrow");
   const signIn=document.querySelector("#account-signin");
   const signInButton=document.querySelector("#account-sign-in");
   const signUpButton=document.querySelector("#account-sign-up");
@@ -46,6 +47,7 @@
     if(!user){
       status.hidden=false;
       if(panelTitle)panelTitle.textContent="Sign in or create a free account";
+      if(eyebrow)eyebrow.textContent="JURY ACCOUNT";
       loggedIn.hidden=true;incidentPanel.hidden=true;historyPanel.hidden=true;
       signIn.hidden=false;
       const callbackStatus=new URLSearchParams(location.search).get("auth");
@@ -67,6 +69,7 @@
       return;
     }
     if(panelTitle)panelTitle.textContent="My account";
+    if(eyebrow)eyebrow.textContent="MY JURY DASHBOARD";
     status.hidden=true;
     signIn.hidden=true;loggedIn.hidden=false;
     incidentPanel.hidden=false;historyPanel.hidden=false;
