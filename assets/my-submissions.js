@@ -13,7 +13,17 @@
     if (content !== undefined) element.textContent = content;
     return element;
   };
+  const photoObjectUrls=new Set();
+  let generation=0;
+  function clearPhotos(){
+    generation++;
+    for(const url of photoObjectUrls)URL.revokeObjectURL(url);
+    photoObjectUrls.clear();
+  }
+  window.addEventListener("pagehide",clearPhotos);
   function render() {
+    clearPhotos();
+    const current=generation;
     list.replaceChildren();
     const records = store.list();
     status.textContent = records.length ?
@@ -70,6 +80,31 @@
           return;
         }
         heading.textContent = incident.title || entry.title || "Guest submission";
+        const photo=(incident.photos||[])[0];
+        if(typeof photo?.url==="string" &&
+           /^\/api\/owner\/media\/[A-Za-z0-9_-]{6,80}$/.test(photo.url)){
+          const link=create("a","owner-case-photo");
+          link.target="_blank";link.rel="noopener noreferrer";
+          link.setAttribute("aria-label","Open full incident photo");
+          const image=create("img");
+          image.alt="Photo from your guest incident";
+          image.loading="lazy";
+          link.append(image);
+          card.insertBefore(link,actions);
+          fetch(photo.url,{
+            headers:{"X-Incident-Manage-Key":entry.key},
+            credentials:"same-origin",cache:"no-store"
+          }).then(async response=>{
+            if(!response.ok || !response.headers.get("Content-Type")?.startsWith("image/"))
+              throw Error("Cannot load photo");
+            const imageUrl=URL.createObjectURL(await response.blob());
+            if(current!==generation || !link.isConnected){
+              URL.revokeObjectURL(imageUrl);return;
+            }
+            photoObjectUrls.add(imageUrl);
+            image.src=imageUrl;link.href=imageUrl;
+          }).catch(()=>link.remove());
+        }
         if (incident.status === "removed") {
           detail.textContent = "Removed from public view.";
           manage.textContent = "View removed incident";
