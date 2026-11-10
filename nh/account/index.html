@@ -11,31 +11,31 @@
 <nav class="nav"><a href="/nh/">New Hampshire</a><a href="/nh/submit/">Submit incident</a><a href="/nh/my-submissions/">My submissions</a><a href="/nh/" class="nav-cta">← Back</a></nav></div></header>
 <main id="main"><section class="subhero"><div class="container"><span class="pill">OPTIONAL ACCOUNT</span>
 <h1>My jury account.</h1>
-<p>Keep your jury progress associated with your account, see the incidents you posted, and manage your own submissions. No account is required to vote or submit as a guest.</p>
+<p>See your incidents, manage submissions, and track your Jury XP.</p>
 </div></section>
 <section class="section"><div class="container owner-layout">
-<div class="owner-panel"><h2>My guest submissions</h2><p>Posted without signing in? Manage incidents saved in this browser, even before accounts are available.</p><a class="btn btn-secondary" href="/nh/my-submissions/">Open My Submissions</a></div>
-<div class="owner-panel"><h2>Sign in or create a free account</h2>
-<p id="account-status" role="status" aria-live="polite">Checking account availability…</p>
-<p class="owner-hint" id="account-login-note">Sign-in stays optional. Cloudflare handles your site's account session.</p>
+<div class="owner-panel"><h2>My guest submissions</h2><p>Manage incidents you posted as a guest from this browser.</p><a class="btn btn-secondary" href="/nh/my-submissions/">Open My Submissions</a></div>
+<div class="owner-panel"><h2 id="account-panel-title">My account</h2>
+<p id="account-status" role="status" aria-live="polite">Checking your account…</p>
 <div id="account-signin" hidden>
   <button type="button" class="btn btn-primary" id="account-sign-in">Sign in</button>
   <button type="button" class="btn btn-secondary" id="account-sign-up">Create free account</button>
 </div>
 <div id="account-user" hidden>
+  <p class="owner-hint">Signed in as</p>
   <strong id="account-user-name"></strong>
   <button type="button" class="btn btn-secondary" id="account-sign-out">Sign out</button>
 </div>
 </div>
 <div class="owner-panel" id="account-incident-panel" hidden><h2>My incidents</h2>
-<p>Only incidents submitted while signed in or securely claimed by your account will appear here.</p>
+<p>Incidents you've posted or added to your account.</p>
 <div id="account-incidents"></div></div>
 <div class="owner-panel" id="account-history-panel" hidden>
 <h2>Your guest jury history</h2><p>Already voted and earned Jury XP on this browser? You can associate that activity with your account.</p>
 <button type="button" id="account-link-browser" class="btn btn-secondary">Link this browser's jury history</button>
-<p class="owner-hint">This records the association. Cross-device vote and XP merging is being built separately.</p>
+<p class="owner-hint">Your jury history on this browser can count toward your account's XP.</p>
 <p id="account-history-status" role="status"></p></div>
 </div></section></main>
 <footer class="footer"><div class="container"><div class="footer-bottom"><a href="/nh/">Back to voting</a> · <a href="/guidelines/">Rules</a> · <a href="/privacy/">Privacy</a></div></div></footer>
 <script src="/assets/public-account.js?v=20261110-worker-session" defer></script>
-<script src="/assets/account-page.js?v=20261110-jwt-debug" defer></script></body></html>
+<script src="/assets/account-page.js?v=20261110-account-cleanup" defer></script></body></html>
