@@ -131,7 +131,8 @@ if (year) year.textContent = String(new Date().getFullYear());
       panel.append(email,
         entry("Change avatar & username","/nh/account/#account-profile-panel"),
         entry("My Incidents","/nh/account/#account-incident-panel"),
-        entry("Jury Dashboard","/nh/account/#account-dashboard-panel"));
+        entry("Jury Dashboard","/nh/account/#account-dashboard-panel"),
+        entry("Jury Leaderboard","/nh/leaderboard/"));
       const signOut=document.createElement("button");
       signOut.type="button";
       signOut.className="member-menu-signout";
