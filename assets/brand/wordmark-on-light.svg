@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 284" role="img" aria-label="Vote Them Off the Road. You be the judge.">
+<g transform="scale(.48828125)">
+<rect width="512" height="512" rx="106" fill="#FFD200"/>
+<path d="M217 326h78l184 186H33z" fill="#050505"/>
+<path d="M213 326h-18L0 512h32zM299 326h18l195 186h-32z" fill="#050505"/>
+<path d="M248 352h16l6 18h-28zM243 392h26l9 25h-44zM235 444h42l17 41h-76z" fill="#FFFDF5"/>
+<path d="M139 238l78 75 161-189" fill="none" stroke="#050505" stroke-width="68" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+<path d="M277 24v211" stroke="#FFD200" stroke-width="5"/>
+<text x="300" y="92" fill="#050505" font-family="DejaVu Sans,Arial,sans-serif" font-weight="900" font-size="73" letter-spacing="-3">VOTE THEM</text>
+<rect x="293" y="110" width="650" height="97" rx="16" fill="#FFD200"/>
+<text x="303" y="182" fill="#050505" font-family="DejaVu Sans,Arial,sans-serif" font-weight="900" font-size="70" letter-spacing="-3">OFF THE ROAD</text>
+<text x="300" y="250" fill="#FFD200" font-family="DejaVu Sans,Arial,sans-serif" font-weight="800" font-size="29">You be the judge.</text>
+</svg>
