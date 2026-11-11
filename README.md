@@ -722,3 +722,76 @@ Official references:
 - https://developers.cloudflare.com/web-analytics/get-started/
 - https://developers.cloudflare.com/web-analytics/faq/
 - https://developers.cloudflare.com/web-analytics/data-metrics/dimensions/
+
+
+## Google sign-in and longer-lived jury sessions (2026-11-11)
+
+The site uses WorkOS AuthKit for member accounts, independently of the
+Cloudflare Access administrator login. A code should not be required at
+every visit. The app uses a Secure, HttpOnly AES-GCM-sealed cookie with
+server-side WorkOS refresh-token exchange. This release extends the app's
+maximum signed-in period from 7 to 30 days; WorkOS can still expire the
+session sooner, depending on its own configuration. After explicit logout,
+session revocation, lost cookies, or the maximum expiration, re-login
+is expected.
+
+### One-time WorkOS session setup
+In https://dashboard.workos.com/ navigate to Applications, select the
+production app, then Sessions. Recommended settings for this site:
+- Maximum session length: 30 days
+- Inactivity timeout: 14 days
+- Access token duration: 15 minutes (automatically refreshes)
+The hard session lifetime does not extend just because somebody revisits.
+
+### Production Google OAuth setup
+WorkOS demo Google credentials work only in staging, NOT production.
+
+1. Open WorkOS Dashboard, Production environment, Authentication,
+   OAuth providers, Google, Manage. Copy its EXACT authorized Redirect URI.
+2. In https://console.cloud.google.com/ set up Google Auth Platform.
+   Use an External audience, site branding, and the site's privacy-policy
+   URL as needed. Request only standard sign-in scopes (openid, email,
+   profile), not extra Google data.
+3. Under Google Auth Platform, Clients, create an OAuth Web application.
+   Add the exact WorkOS redirect URI under Authorized redirect URIs.
+   Copy its generated client ID and secret to the Google provider's
+   configuration inside WorkOS. Do not save the client secret in GitHub,
+   Cloudflare variables, or chat.
+4. Save and enable Google in WorkOS Production. In Google Cloud, publish
+   the OAuth app to production, rather than leaving it in test-user mode.
+5. Test Google on the existing hosted AuthKit sign-in screen, where WorkOS
+   automatically displays enabled providers.
+6. After that succeeds, switch GOOGLE_LOGIN_ENABLED from "false" to "true"
+   in wrangler.jsonc and redeploy. This enables the site's dedicated
+   Continue with Google buttons. It is deliberately false until the
+   provider is ready, so the public site never advertises a broken button.
+
+The direct Google route /api/auth/start?provider=google uses the same
+existing server-side state, PKCE code challenge, callback validation,
+internal WorkOS user identity, and encrypted session as hosted AuthKit.
+The existing login and guest submission paths remain available.
+
+WorkOS can automatically link Google OAuth credentials to a verified
+existing WorkOS user with the same email address. The user may need to
+verify ownership once if the existing email account is not verified.
+
+There is no separate Google identity provider charge for standard social
+auth in the AuthKit free tier (currently 1 million monthly active users).
+A paid WorkOS custom auth domain is not necessary.
+
+Official references:
+- https://workos.com/docs/integrations/google-oauth
+- https://workos.com/docs/authkit/social-login
+- https://workos.com/docs/authkit/identity-linking
+- https://workos.com/docs/authkit/sessions
+- https://workos.com/pricing
+
+### Checks
+- With GOOGLE_LOGIN_ENABLED=false, the API does not offer direct Google
+  login, the account/header Google buttons remain hidden, and existing
+  sign-in and guest functionality remain intact.
+- With GOOGLE_LOGIN_ENABLED=true only after production OAuth setup,
+  confirm direct Google and hosted login land on the same member,
+  preserving XP and owned incidents.
+- Test browser restart, a rotated access token, explicit logout, and
+  an expired session. Transient WorkOS errors should not clear cookies.
