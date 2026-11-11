@@ -250,6 +250,8 @@
             " head-to-head wins = "+worstPoints+" Worst points"),
           el("span","weekly-votes","✓ "+row.pass_votes+" Pass"+
             (row.funny_votes?" · 😂 "+row.funny_votes+" Funny":"")));
+        if(row.author?.handle)
+          card.append(el("p","weekly-author","Posted by @"+row.author.handle));
         showCoverPhoto(card,row);
         card.append(el("p","weekly-qualification",row.qualified?
           (d.archived?"Final weekly podium":"Qualified for the weekly podium"):

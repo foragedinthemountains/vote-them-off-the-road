@@ -58,3 +58,24 @@ header{background:var(--brand-cream);border-bottom:2px solid var(--brand-black)}
  .sample-card-brand{font-size:17px}
  .sample-card-brand small{font-size:8px}
 }
+
+/* Header juror avatar menu; never hides in the compact mobile navigation. */
+.header-inner .member-menu{position:relative;flex:0 0 auto;margin-left:auto;z-index:30}
+.member-menu-trigger{display:flex;align-items:center;gap:7px;padding:6px 10px 6px 6px;border:1.5px solid #c3c2b5;border-radius:999px;background:#fffaf0;font:800 12px/1.1 'DM Sans',system-ui,sans-serif;cursor:pointer;color:#1d362c;max-width:160px}
+.member-menu-trigger:focus-visible{outline:3px solid #377bdb}
+.member-menu-face{width:35px;height:35px;display:flex;align-items:center;justify-content:center;background:#f7c744;border-radius:50%;font-size:21px;overflow:hidden;flex:0 0 auto}
+.member-menu-face img{width:100%;height:100%;object-fit:cover;display:block}
+.member-menu-caption{max-width:92px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.member-menu-panel{position:absolute;right:0;top:calc(100% + 8px);width:min(290px,calc(100vw - 28px));padding:9px;background:#fffefa;border:1.5px solid #c9c5b8;border-radius:14px;box-shadow:0 15px 38px #1e302a24;display:flex;flex-direction:column;gap:3px}
+.member-menu-panel[hidden]{display:none!important}
+.member-menu-panel a,.member-menu-signout{display:block;width:100%;border:0;border-radius:8px;background:transparent;text-align:left;text-decoration:none;font:750 14px/1.4 'DM Sans',system-ui,sans-serif;padding:12px;color:#24392e;cursor:pointer}
+.member-menu-panel a:hover,.member-menu-signout:hover{background:#eee9d9}
+.member-menu-panel .member-menu-signout{color:#8b2e25;border-top:1px solid #e7dfd2;border-radius:0}
+.member-menu-email{font-size:12px;color:#53625a;padding:5px 12px 10px;margin:0;overflow-wrap:anywhere}
+@media(max-width:650px){
+ .header-inner .member-menu{margin-left:auto}
+ .member-menu-trigger{padding:5px;border-radius:50%;gap:0}
+ .member-menu-caption,.member-menu-trigger>span:last-child{display:none}
+ .member-menu-face{width:34px;height:34px}
+ .header-inner{gap:8px}
+}

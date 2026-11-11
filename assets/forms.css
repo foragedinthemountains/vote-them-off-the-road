@@ -25,3 +25,8 @@
 .form-panel .posting-mode label{display:flex;align-items:center;gap:10px;margin:0;cursor:pointer;font-size:14px}
 .form-panel .posting-mode input[type="checkbox"]{width:18px;height:18px;padding:0;flex:0 0 auto;accent-color:#17322b}
 .posting-mode .form-hint{margin-top:7px}
+
+
+.posting-mode #posting-credit-option[hidden]{display:none!important}
+.posting-mode #posting-credit-option{margin-top:14px;padding-top:12px;border-top:1px solid #cfc5a9}
+.posting-mode #posting-credit-option label{display:flex;align-items:center;gap:8px;font-weight:850}

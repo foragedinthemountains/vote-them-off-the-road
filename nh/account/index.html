@@ -3,10 +3,10 @@
 <meta name="referrer" content="no-referrer"><meta name="robots" content="noindex,nofollow">
 <title>My Account and Incidents | Vote Them Off the Road</title>
 <link rel="icon" href="/assets/favicon.svg?v=brand-20261110" type="image/svg+xml">
-<link rel="stylesheet" href="/assets/styles.css?v=brand-20261110"><link rel="stylesheet" href="/assets/forms.css">
-<link rel="stylesheet" href="/assets/owner.css?v=20261110-profile-dashboard"></head>
+<link rel="stylesheet" href="/assets/styles.css?v=20261110-member-profile"><link rel="stylesheet" href="/assets/forms.css">
+<link rel="stylesheet" href="/assets/owner.css?v=20261110-member-profile-v2"></head>
 <body><a class="skip" href="#main">Skip to content</a>
-<div class="announcement">OPTIONAL ACCOUNTS • GUEST VOTING IS ALWAYS WELCOME</div>
+<div class="announcement">JURY PROFILES • POST AND VOTE YOUR WAY</div>
 <header><div class="container header-inner"><a class="brand" href="/"><span class="brand-mark" aria-hidden="true"><img src="/assets/brand/mark.svg" alt="" width="52" height="52" loading="eager"></span><span class="brand-words"><span class="brand-line">Vote Them</span><span class="brand-line brand-banner">Off the Road</span><small>You be the judge.</small></span></a>
 <nav class="nav"><a href="/nh/">New Hampshire</a><a href="/nh/submit/">Submit incident</a><a href="/nh/my-submissions/">My submissions</a><a href="/nh/" class="nav-cta">← Back</a></nav></div></header>
 <main id="main"><section class="subhero"><div class="container"><span class="pill" id="account-eyebrow">JURY ACCOUNT</span>
@@ -27,6 +27,30 @@
   <button type="button" class="btn btn-secondary" id="account-sign-out">Sign out</button>
 </div>
 </div>
+<section class="owner-panel" id="account-profile-panel" hidden aria-labelledby="profile-heading">
+<h2 id="profile-heading">My public profile</h2>
+<p class="owner-hint">Your profile identifies you only when you choose to display author credit on an incident. You can still post and vote as a guest.</p>
+<p id="member-profile-status" class="owner-hint" role="status" aria-live="polite">Loading profile options…</p>
+<div id="member-profile-editor" hidden>
+<label class="member-profile-label" for="member-handle">Public username</label>
+<div class="member-profile-handle"><span aria-hidden="true">@</span><input id="member-handle" maxlength="20" autocomplete="off" spellcheck="false" placeholder="RoadJuror"></div>
+<p class="owner-hint">3–20 letters, numbers or underscores, starting with a letter. No real name required.</p>
+<div class="member-profile-picker">
+<div class="member-profile-preview" id="member-avatar-preview" aria-label="Your current avatar">⚖️</div>
+<div class="member-profile-picker-content">
+<strong>Choose an avatar</strong>
+<div id="member-avatar-presets" class="member-profile-presets" role="group" aria-label="Preset avatars"></div>
+<div class="member-profile-photo-actions">
+<input id="member-avatar-upload" type="file" accept="image/jpeg,image/png,image/webp" hidden>
+<button id="member-avatar-upload-button" class="btn btn-secondary" type="button">Upload my photo</button>
+<button id="member-avatar-remove" class="btn btn-secondary" type="button" hidden>Remove photo</button>
+</div>
+</div>
+</div>
+<button id="member-profile-save" class="btn btn-primary" type="button">Save profile</button>
+<p class="owner-hint">Your uploaded avatar may be visible publicly if you choose author credit. Never upload someone else's photo without permission.</p>
+</div>
+</section>
 <div class="owner-panel" id="account-dashboard-panel" hidden>
 <div class="jury-profile-heading"><div><span class="jury-profile-eyebrow">YOUR JURY RECORD</span><h2>Jury Dashboard</h2></div>
 <a class="btn btn-primary" href="/nh/#incidents">Cast a verdict</a></div>
@@ -56,4 +80,5 @@
 </div></section></main>
 <footer class="footer"><div class="container"><div class="footer-bottom"><a href="/nh/">Back to voting</a> · <a href="/guidelines/">Rules</a> · <a href="/privacy/">Privacy</a></div></div></footer>
 <script src="/assets/public-account.js?v=20261110-jury-sync" defer></script>
-<script src="/assets/account-page.js?v=20261110-profile-dashboard" defer></script></body></html>
+<script src="/assets/account-page.js?v=20261110-member-profile" defer></script><script src="/assets/member-profile.js?v=20261110-member-profile" defer></script>
+<script src="/assets/site.js?v=20261110-member-profile" defer></script></body></html>

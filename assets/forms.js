@@ -17,6 +17,8 @@
   const postingStatus=document.querySelector("#posting-mode-status");
   const postAsGuest=document.querySelector("#post-as-guest");
   const postingGuestOption=document.querySelector("#posting-guest-option");
+  const postingCreditOption=document.querySelector("#posting-credit-option");
+  const postShowAuthor=document.querySelector("#post-show-author");
   async function updatePostingMode(){
     if(mode!=="submit" || !postingMode || !postingStatus)return;
     postingMode.hidden=false;
@@ -28,10 +30,18 @@
       if(user){
         postingGuestOption.hidden=false;
         const label=user.email||"your account";
+        let eligibleForCredit=false;
+        try{
+          const profile=await account.fetchAuthenticated("/api/account/profile");
+          eligibleForCredit=profile.ready===true && !!profile.profile?.handle;
+        }catch{ /* Profiles may not have been enabled in D1 yet. */ }
         const refresh=()=>{
-          postingStatus.textContent=postAsGuest.checked?
+          const guest=postAsGuest.checked;
+          postingStatus.textContent=guest?
             "Posting as a guest. Save the private management link afterward.":
             "Posting to your account ("+label+").";
+          if(postingCreditOption)postingCreditOption.hidden=guest||!eligibleForCredit;
+          if(guest&&postShowAuthor)postShowAuthor.checked=false;
         };
         postAsGuest.addEventListener("change",refresh);
         refresh();
@@ -256,7 +266,8 @@
     let payload = mode === "submit" ? {
       title: values.get("title"), location_label: values.get("location_label"),
       category: values.get("category") || "other",
-      description: values.get("description"), turnstile_token: token
+      description: values.get("description"), turnstile_token: token,
+      show_author:postAsGuest?.checked!==true && postShowAuthor?.checked===true
     } : {
       reason: values.get("reason"), details: values.get("details"),
       contact_email: values.get("contact_email"), turnstile_token: token

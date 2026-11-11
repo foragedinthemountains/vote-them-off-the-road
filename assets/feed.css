@@ -289,3 +289,10 @@
  .feed-vote-actions button{min-height:62px;padding:8px 3px;font-size:11px}
  .feed-vote-actions.has-funny .vote-funny{grid-column:auto}
 }
+
+
+/* Opt-in public credit: uploaded avatars stay cropped only inside the small avatar chip. */
+.incident-author{display:inline-flex;align-items:center;gap:7px;margin:10px 0;color:#1d2d28;font-size:12px;font-weight:800}
+.incident-author-avatar{width:32px;height:32px;border:2px solid #050505;border-radius:50%;background:#FFD200;display:flex;align-items:center;justify-content:center;overflow:hidden;font-size:17px}
+.incident-author-avatar img{width:100%;height:100%;object-fit:cover;display:block}
+.featured-author{font-size:12px;font-weight:850;color:#FFD200;margin:5px 0 8px}
