@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Vote Them Off the Road logo: checkmark above a road">
+<rect width="512" height="512" rx="106" fill="#FFD200"/>
+<path d="M217 326h78l184 186H33z" fill="#050505"/>
+<path d="M213 326h-18L0 512h32zM299 326h18l195 186h-32z" fill="#050505"/>
+<path d="M248 352h16l6 18h-28zM243 392h26l9 25h-44zM235 444h42l17 41h-76z" fill="#FFFDF5"/>
+<path d="M139 238l78 75 161-189" fill="none" stroke="#050505" stroke-width="68" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

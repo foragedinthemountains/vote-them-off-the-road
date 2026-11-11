@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" role="img" aria-label="Vote Them Off the Road; sample incident with Vote Off, Pass and Funny verdicts">
+<rect width="1200" height="630" fill="#050505"/>
+<defs><pattern id="hazard" width="72" height="30" patternUnits="userSpaceOnUse"><path d="M0 30 25 0h29L29 30Z" fill="#FFD200"/></pattern></defs>
+<rect width="1200" height="26" fill="url(#hazard)"/>
+<rect y="604" width="1200" height="26" fill="url(#hazard)"/>
+<g transform="translate(50 70) scale(.23)">
+<rect width="512" height="512" rx="106" fill="#FFD200"/>
+<path d="M217 326h78l184 186H33z" fill="#050505"/>
+<path d="M213 326h-18L0 512h32zM299 326h18l195 186h-32z" fill="#050505"/>
+<path d="M248 352h16l6 18h-28zM243 392h26l9 25h-44zM235 444h42l17 41h-76z" fill="#FFFDF5"/>
+<path d="M139 238l78 75 161-189" fill="none" stroke="#050505" stroke-width="68" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+<text x="195" y="125" fill="#FFFDF5" font-family="DejaVu Sans, Arial, sans-serif" font-size="63" font-weight="900" letter-spacing="-3">VOTE THEM</text>
+<rect x="188" y="158" width="398" height="87" rx="12" fill="#FFD200"/>
+<text x="198" y="216" fill="#050505" font-family="DejaVu Sans, Arial, sans-serif" font-size="51" font-weight="900" letter-spacing="-3">OFF THE ROAD</text>
+<text x="51" y="340" fill="#FFD200" font-family="DejaVu Sans, Arial, sans-serif" font-size="50" font-weight="900">YOU BE THE</text>
+<text x="49" y="416" fill="#FFFDF5" font-family="DejaVu Sans, Arial, sans-serif" font-size="77" font-weight="900">JUDGE.</text>
+<text x="53" y="491" fill="#FFFDF5" font-family="DejaVu Sans, Arial, sans-serif" font-size="25" font-weight="900">REAL STORIES.</text>
+<text x="53" y="533" fill="#FFFDF5" font-family="DejaVu Sans, Arial, sans-serif" font-size="25" font-weight="900">THREE VERDICTS.</text>
+<rect x="640" y="62" width="517" height="515" rx="28" fill="#FFFDF5"/>
+<clipPath id="pic"><rect x="656" y="82" width="485" height="248" rx="18"/></clipPath>
+<g clip-path="url(#pic)">
+<rect x="656" y="82" width="485" height="248" fill="#C2CFCA"/>
+<rect x="656" y="190" width="485" height="75" fill="#66725C"/>
+<path d="M722 218h353l72 112H652Z" fill="#3A3A3A"/>
+<path d="M898 218h5l15 112h-12z" fill="#FFD200"/>
+<path d="M843 218h185l29 84H817z" fill="#FFFDF5" stroke="#050505" stroke-width="5" stroke-linejoin="round"/>
+<rect x="862" y="232" width="149" height="40" rx="7" fill="#3A3A3A"/>
+<rect x="845" y="280" width="34" height="12" rx="3" fill="#FFD200"/>
+<rect x="999" y="280" width="34" height="12" rx="3" fill="#FFD200"/>
+<rect x="912" y="306" width="52" height="16" fill="#050505"/>
+</g>
+<rect x="677" y="98" width="235" height="40" rx="20" fill="#050505"/>
+<text x="692" y="126" fill="#FFD200" font-family="DejaVu Sans,Arial,sans-serif" font-size="20" font-weight="900">SAMPLE INCIDENT</text>
+<text x="668" y="391" fill="#050505" font-family="DejaVu Sans,Arial,sans-serif" font-size="44" font-weight="900">YOUR CALL.</text>
+<text x="668" y="433" fill="#3A3A3A" font-family="DejaVu Sans,Arial,sans-serif" font-size="19" font-weight="800">CAST YOUR VERDICT</text>
+<rect x="661" y="467" width="146" height="77" rx="16" fill="#FFD200" stroke="#050505" stroke-width="3"/>
+<rect x="816" y="467" width="143" height="77" rx="16" fill="#FFFDF5" stroke="#050505" stroke-width="3"/>
+<rect x="968" y="467" width="165" height="77" rx="16" fill="#FFFDF5" stroke="#050505" stroke-width="3"/>
+<g fill="#050505" font-family="DejaVu Sans,Arial,sans-serif" font-size="22" font-weight="900" text-anchor="middle">
+<text x="734" y="516">VOTE OFF</text><text x="887" y="516">PASS</text><text x="1050" y="516">FUNNY</text>
+</g>
+</svg>
