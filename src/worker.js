@@ -1754,8 +1754,11 @@ async function changeIncidentCredit(request,env,id){
 async function accountMyIncidents(request,env){
   const auth=await publicAccountIdentity(request,env);
   if(auth.error)return auth.error;
+  const profiles=await profileSchemaReady(env);
   const rows=await env.DB.prepare(
     "SELECT i.id,i.title,i.category,i.status,i.created_at,i.updated_at,"+
+    (profiles?"COALESCE((SELECT show_author FROM incident_attribution a "+
+      "WHERE a.incident_id=i.id),0) AS show_author, ":"0 AS show_author, ")+
     "(SELECT COUNT(*) FROM incident_media m WHERE m.incident_id=i.id) AS photos, "+
     "(SELECT m.id FROM incident_media m WHERE m.incident_id=i.id AND m.media_type='image' "+
     "ORDER BY m.display_order ASC LIMIT 1) AS cover_photo_id "+
