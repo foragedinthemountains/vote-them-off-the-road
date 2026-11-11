@@ -612,7 +612,7 @@ async function weeklyBoard(env,offset=0) {
     "SELECT category,COUNT(*) AS incidents FROM incidents " +
     "WHERE state_code='NH' AND status='published' GROUP BY category ORDER BY incidents DESC"
   ).all();
-  const podiumWithImages=await attachImages(podiums,env);
+  const podiumWithImages=await attachPublicAuthors(await attachImages(podiums,env),env);
   return json({ready:true,week_start:start,week_end:end,minimum_votes:minimum,
     archived,history_offset:offset,podiums:podiumWithImages,
     leaders:podiumWithImages.filter(row=>row.rank===1),
@@ -657,7 +657,7 @@ async function funniestWeekBoard(env,offset=0,category="") {
     }
   }
   if(!archived)podiums=await weeklyAwardCandidates(env,start,end,"funny",false,category);
-  const podiumWithImages=await attachImages(podiums,env);
+  const podiumWithImages=await attachPublicAuthors(await attachImages(podiums,env),env);
   return json({ready:true,week_start:start,week_end:end,minimum_votes:minimum,
     archived,history_offset:offset,category,podiums:podiumWithImages,
     scoring:"1 Funny reaction = 1 point; 1 unique-browser funny-category duel win = 1 point"});
@@ -1206,7 +1206,8 @@ async function listIncidents(url, env, request) {
   const rows=result.results||[];
   return json({state,sort,category,funny_enabled:await humorSchemaReady(env),offset,has_more:rows.length>20,
     next_offset:offset+Math.min(20,rows.length),
-    incidents:await attachMyVotes(await attachImages(rows.slice(0,20),env),request,env)
+    incidents:await attachPublicAuthors(
+      await attachMyVotes(await attachImages(rows.slice(0,20),env),request,env),env)
   });
 }
 
@@ -1241,7 +1242,9 @@ async function getIncident(id, env, request) {
     ${summaryGroup} LIMIT 1
   `).bind(id).first();
   return row
-    ? json({ incident: (await attachMyVotes(await attachImages([row], env), request, env))[0], funny_enabled:await humorSchemaReady(env) })
+    ? json({ incident: (await attachPublicAuthors(
+        await attachMyVotes(await attachImages([row],env),request,env),env))[0],
+        funny_enabled:await humorSchemaReady(env) })
     : json({ error: "Not found" }, 404);
 }
 
@@ -1303,7 +1306,8 @@ async function prepareWrite(request, env, action) {
     }
     body = {
       title: data.get("title"), location_label: data.get("location_label"),
-      description: data.get("description"), category: data.get("category"), turnstile_token: data.get("turnstile_token"), photos
+      description: data.get("description"), category: data.get("category"),
+      show_author: data.get("show_author"), turnstile_token: data.get("turnstile_token"), photos
     };
   } else {
     const parsed = await parseBody(request);
@@ -1848,6 +1852,7 @@ async function createIncident(request, env) {
   const category = typeof body.category === "string" ? body.category : "other";
   if (!Object.hasOwn(behaviorCategories, category)) return json({ error: "Invalid driving behavior category" }, 400);
   const enhanced = await featureSchemaReady(env);
+  const showAuthor=body.show_author===true || body.show_author==="true";
   const photos = Array.isArray(body.photos) ? body.photos : [];
   if (photos.length && !photosReady(env)) return json({ error: "Photo uploads are being set up. Submit a text story for now." }, 503);
   if (photos.length > maxPhotos) return json({ error: "Maximum five photos" }, 400);
@@ -1864,6 +1869,14 @@ async function createIncident(request, env) {
     try{accountUser=await getPublicAccountUser(request,env);}
     catch{return json({error:"Your account session needs to be refreshed. Please sign in again."},401);}
     if(!accountUser)return json({error:"Sign in again or submit as guest."},401);
+  }
+  if(showAuthor){
+    if(!accountUser)return json({error:"Sign in to publicly credit an incident"},400);
+    if(!(await profileSchemaReady(env)))return json({error:"Public juror profiles are not ready yet"},503);
+    const profile=await env.DB.prepare(publicProfileFields)
+      .bind(accountUser.userId).first();
+    if(!profile?.handle)
+      return json({error:"Choose a public username in My Account first"},409);
   }
   const managementToken=ownershipOn&&!accountUser?createManagementToken():null;
   const managementHash=managementToken?await hashManagementToken(managementToken):null;
@@ -1891,6 +1904,16 @@ async function createIncident(request, env) {
       console.error("Could not assign new incident ownership",error?.message||"error");
       await env.DB.prepare("DELETE FROM incidents WHERE id=?").bind(id).run();
       return json({error:"Could not initialize ownership. Please retry."},503);
+    }
+  }
+  if(showAuthor){
+    try{
+      await env.DB.prepare(
+        "INSERT INTO incident_attribution(incident_id,show_author) VALUES(?,1)"
+      ).bind(id).run();
+    }catch(error){
+      await env.DB.prepare("DELETE FROM incidents WHERE id=?").bind(id).run();
+      return json({error:"Could not save author credit. Please retry."},503);
     }
   }
   const ownershipReply=ownershipOn?
@@ -2483,6 +2506,19 @@ export default {
       return authCallback(request,env);
     }
     if (pathname.startsWith("/admin/")) return adminRequest(request, env, pathname);
+    const avatarPath=/^\/avatars\/([0-9a-f-]{36})$/.exec(pathname);
+    if(avatarPath){
+      if(request.method!=="GET"&&request.method!=="HEAD")
+        return new Response("Method not allowed",{status:405,headers:{Allow:"GET, HEAD"}});
+      try{
+        const avatar=await serveAvatar(avatarPath[1],env);
+        return request.method==="HEAD"?
+          new Response(null,{status:avatar.status,headers:avatar.headers}):avatar;
+      }catch(error){
+        console.error("Avatar fetch failed",error?.name||"unknown");
+        return new Response("Temporarily unavailable",{status:503});
+      }
+    }
     // Initialize the anonymous jury cookie on the HTML response, BEFORE
     // the page starts its parallel feed, XP, streak and game requests.
     // Avoids competing Set-Cookie values on a visitor's very first visit.
@@ -2548,6 +2584,16 @@ export default {
         return accountMe(request,env);
       if(pathname==="/api/account/xp" && request.method==="GET")
         return accountXP(request,env);
+      if(pathname==="/api/account/profile")
+        return accountProfile(request,env);
+      if(pathname==="/api/account/avatar")
+        return accountAvatar(request,env);
+      const creditRoute=/^\/api\/account\/incidents\/([A-Za-z0-9_-]{6,80})\/credit$/.exec(pathname);
+      if(creditRoute){
+        if(request.method!=="PATCH")
+          return json({error:"Method not allowed"},405,{Allow:"PATCH"});
+        return changeIncidentCredit(request,env,creditRoute[1]);
+      }
       if(pathname==="/api/account/incidents" && request.method==="GET")
         return accountMyIncidents(request,env);
       if(pathname==="/api/account/link-browser" && request.method==="POST")
