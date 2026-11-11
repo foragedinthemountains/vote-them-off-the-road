@@ -32,6 +32,139 @@
   analytics.className = "admin-analytics";
   analytics.setAttribute("aria-label", "Incident and report analytics");
   statsNode.after(analytics);
+  const growthNode=document.createElement("section");
+  growthNode.className="admin-growth";
+  growthNode.setAttribute("aria-labelledby","growth-title");
+  statsNode.after(growthNode);
+  let growthDays=30;
+  let growthReq=0;
+  function growthStat(label,value,detail){
+    const card=el("div","growth-stat");
+    card.append(el("strong","",value),el("span","growth-stat-label",label));
+    if(detail)card.append(el("span","growth-stat-detail",detail));
+    return card;
+  }
+  function renderGrowth(data,error){
+    growthNode.replaceChildren();
+    const head=el("div","growth-head");
+    const titleWrap=el("div");
+    titleWrap.append(el("span","section-kicker","Launch performance"),
+      el("h2","","Growth & engagement"));
+    const period=el("select","growth-period");
+    period.setAttribute("aria-label","Growth reporting period");
+    for(const days of [7,30,90]){
+      period.append(new Option("Last "+days+" days",String(days)));
+    }
+    period.value=String(growthDays);
+    period.addEventListener("change",()=>{
+      growthDays=Number(period.value);
+      loadGrowth();
+    });
+    head.append(titleWrap,period);
+    growthNode.append(head);
+    if(error){
+      growthNode.append(el("p","growth-note",
+        "Growth stats could not load. Moderation is still available."));
+      return;
+    }
+    if(!data){
+      growthNode.append(el("p","growth-note","Loading growth metrics…"));
+      return;
+    }
+    const p=data.period||{},total=data.totals||{};
+    const num=value=>Number(value||0).toLocaleString();
+    const cards=el("div","growth-stats");
+    const items=[
+      ["New submissions",num(p.submissions),"In selected period"],
+      ["With photos",num(p.photo_submissions),"Submitted incidents with images"],
+      ["Reactions",num(p.reactions),"Recorded incident votes"],
+      ["Active jurors",num(p.active_voter_identities),"Browser/account voting identities"],
+      ["Repeat jurors",num(p.repeat_voter_identities)+
+        " ("+Number(p.repeat_voter_percent||0)+"%)",
+        "Voted on at least two different days"]
+    ];
+    if(p.new_accounts!==null && p.new_accounts!==undefined){
+      items.push(["New accounts",num(p.new_accounts),"Registered member records"]);
+    }
+    for(const entry of items)cards.append(growthStat(...entry));
+    growthNode.append(cards);
+    growthNode.append(el("p","growth-note",
+      "All time: "+num(total.submissions)+" submitted incidents · "+
+      num(total.published)+" currently published · "+
+      num(total.reactions)+" current recorded votes. "+
+      "Daily dates use UTC."));
+    const daily=Array.isArray(data.daily)?data.daily:[];
+    const recent=daily.slice(-14);
+    const maximum=Math.max(1,...recent.flatMap(row=>
+      [Number(row.submissions)||0,Number(row.reactions)||0]));
+    const bars=el("div","growth-chart");
+    bars.setAttribute("aria-label","Last "+recent.length+
+      " days of submissions and incident votes");
+    bars.append(el("h3","","Daily participation"),
+      el("p","growth-legend","Yellow: submissions · Green: reactions"));
+    const plot=el("div","growth-plot");
+    for(const row of recent){
+      const day=el("div","growth-day");
+      const pair=el("div","growth-bar-pair");
+      for(const [value,cls] of [
+        [Number(row.submissions)||0,"growth-bar-submission"],
+        [Number(row.reactions)||0,"growth-bar-reaction"]]){
+        const bar=el("div","growth-bar "+cls);
+        bar.style.height=Math.max(value>0?6:0,value/maximum*100)+"%";
+        bar.title=value+" "+(cls==="growth-bar-submission"?
+          "submissions":"reactions")+" on "+row.day;
+        pair.append(bar);
+      }
+      const stamp=el("span","growth-day-label",
+        typeof row.day==="string"?row.day.slice(5):"");
+      day.append(pair,stamp);plot.append(day);
+    }
+    bars.append(plot);
+    growthNode.append(bars);
+    const details=el("details","growth-details");
+    details.append(el("summary","","View the daily data table"));
+    const table=el("table","growth-table");
+    const thead=el("thead");
+    const header=el("tr");
+    for(const t of ["Date (UTC)","Submissions","Reactions"]){
+      header.append(el("th","",t));
+    }
+    thead.append(header);table.append(thead);
+    const body=el("tbody");
+    for(const row of [...daily].reverse()){
+      const tr=el("tr");
+      for(const value of [row.day,num(row.submissions),num(row.reactions)]){
+        tr.append(el("td","",value));
+      }
+      body.append(tr);
+    }
+    table.append(body);
+    details.append(table);
+    growthNode.append(details);
+    const traffic=el("div","growth-traffic");
+    traffic.append(el("h3","","Where visitors come from"),
+      el("p","growth-note",
+        "Use Cloudflare Web Analytics for page views, referring sites, "+
+        "devices and countries. These are separate from the jury "+
+        "activity counts above. A visitor-to-submission conversion "+
+        "rate cannot be calculated reliably from these two sources."));
+    const link=el("a","btn btn-secondary","Open Cloudflare analytics");
+    link.href="https://dash.cloudflare.com/";
+    link.target="_blank";
+    link.rel="noopener noreferrer";
+    traffic.append(link);
+    growthNode.append(traffic);
+  }
+  async function loadGrowth(){
+    const seq=++growthReq;
+    renderGrowth(null,false);
+    try{
+      const data=await getJson("/admin/api/growth?days="+growthDays);
+      if(seq===growthReq)renderGrowth(data,false);
+    }catch(error){
+      if(seq===growthReq)renderGrowth(null,true);
+    }
+  }
   function refreshReportFilters() {
     renderReports(allReports.filter(report =>
       (!reasonFilter.value || report.reason === reasonFilter.value) &&
@@ -343,6 +476,7 @@
       renderIncidents(incidents);
       const analyticsData = await getJson("/admin/api/analytics").catch(() => null);
       renderAnalytics(analyticsData);
+      await loadGrowth();
       statusNode.textContent = "Dashboard up to date.";
       statusNode.dataset.state = "ok";
     } catch (error) {
