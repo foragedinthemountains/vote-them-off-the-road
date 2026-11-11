@@ -602,3 +602,47 @@ with zero history, signed-in account with votes on two devices and linked
 guest votes, 100/350/1000 XP threshold progress, and mobile sizes. Hide a
 previously voted-on incident and confirm it disappears from the recent
 verdicts list while the account's lifetime XP remains intact.
+
+
+## Installable phone app (PWA) | November 2026
+
+The live website now has an installable Progressive Web App foundation at no
+additional hosting cost. This is a home-screen app experience, **not** a native
+iOS App Store/Google Play listing. The stable manifest at
+\`/manifest.webmanifest\` starts at \`/nh/\`, uses \`id: /\`, a standalone window,
+the existing yellow/black check-and-road mark, and real raster 192px/512px
+PNG application icons plus a maskable SVG. The manifest and icon files are
+public static assets. The homepage and New Hampshire voting board link it
+and present a native install button only if the browser emits
+\`beforeinstallprompt\`. All browsers can open the simple installation
+instructions at \`/install/\`; iPhone users can use Safari's Share menu.
+
+**Private-data boundary:** The root service worker at \`/sw.js\` caches
+**only** \`/offline.html\`. It has no handler at all for API, media, moderation,
+account, private management, or upload requests, and never caches dynamic
+HTML or JSON. Only a short fixed list of public GET navigations
+(\`/\`, \`/nh/\`, \`/guidelines/\`, \`/privacy/\`, \`/install/\`) can fall back to
+an explicit offline notice if their network fetch fails. Voting and XP do
+not work offline; never show stale verdicts as if they were live.
+
+The GitHub-connected Cloudflare Worker continues serving real votes, media,
+WorkOS account sessions, Access admin, and D1 exactly as before. No
+database migrations or additional services/secrets required.
+
+**After deploying:**
+1. Check \`https://votethemofftheroad.com/manifest.webmanifest\` returns
+   JSON with \`Content-Type: application/manifest+json\`; confirm 192px and
+   512px PNG icons and \`/sw.js\` return 200.
+2. Use Chrome/Edge DevTools **Application -> Manifest** to inspect icons,
+   start URL, and installability. Android Chrome should offer native install
+   after browser engagement criteria are met; iOS Safari uses Add to Home
+   Screen manually. Verify the new \`/install/\` help link.
+3. Install from Android/desktop, launch directly into \`/nh/\`, then verify
+   the existing account, voting, and photo pages still work online.
+4. Disconnect the network and visit the **public** \`/nh/\` navigation to
+   confirm the offline message. Disconnect and visit \`/nh/account/\` or
+   \`/admin/\` and confirm **no cached private information** appears.
+5. Reconnect and ensure new content and verdict counts update normally.
+
+PWA install icons are generated from the repository's existing favicon,
+rather than introducing new licensing or branded assets.

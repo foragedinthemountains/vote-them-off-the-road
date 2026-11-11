@@ -8,3 +8,9 @@
 .daily-invite p{color:#4d5a55;max-width:750px;margin:0}
 .daily-invite .btn{flex-shrink:0}
 @media(max-width:750px){.daily-invite-inner{align-items:stretch;flex-direction:column}.daily-invite .btn{width:100%}}
+
+/* Install prompt is visible only when a browser offers native installation. */
+#vtor-install-app[hidden]{display:none!important}
+#vtor-install-app{font:inherit;cursor:pointer}
+.home-install-link{display:inline-block;margin-top:12px;color:#315b49;font-size:14px;font-weight:800;text-decoration:underline;text-underline-offset:3px}
+.home-install-link:hover{color:#173d30}

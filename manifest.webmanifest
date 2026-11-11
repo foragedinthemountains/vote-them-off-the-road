@@ -1,0 +1,37 @@
+{
+  "id": "/",
+  "name": "Vote Them Off the Road",
+  "short_name": "Vote Them Off",
+  "description": "New Hampshire driving stories, jury votes, and weekly road verdicts.",
+  "start_url": "/nh/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f7f7f1",
+  "theme_color": "#f7c744",
+  "lang": "en-US",
+  "orientation": "any",
+  "categories": [
+    "entertainment",
+    "social"
+  ],
+  "icons": [
+    {
+      "src": "/assets/app-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/assets/app-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/assets/app-maskable.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
+}
