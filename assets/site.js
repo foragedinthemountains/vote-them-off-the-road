@@ -94,7 +94,7 @@ if (year) year.textContent = String(new Date().getFullYear());
     if(!document.querySelector('script[src*="/assets/public-account.js"]')){
       await new Promise(resolve=>{
         const script=document.createElement("script");
-        script.src="/assets/public-account.js?v=20261110-profile-menu";
+        script.src="/assets/public-account.js?v=20261111-google-login";
         script.onload=resolve;
         script.onerror=resolve;
         document.head.append(script);
@@ -158,6 +158,14 @@ if (year) year.textContent = String(new Date().getFullYear());
         if(accounts?.state?.enabled)accounts.signIn();
         else location.assign("/nh/account/");
       });
+      if(accounts?.state?.googleEnabled){
+        const google=document.createElement("button");
+        google.type="button";
+        google.textContent="Continue with Google";
+        google.className="member-menu-signout";
+        google.addEventListener("click",()=>accounts.signInWithGoogle());
+        panel.append(google);
+      }
       panel.append(signIn,
         entry("Continue as a guest","/nh/"),
         entry("My guest submissions","/nh/my-submissions/"));
