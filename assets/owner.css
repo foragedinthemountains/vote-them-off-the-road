@@ -115,3 +115,10 @@
  .member-profile-preview{width:90px;height:90px;font-size:40px}
  .member-profile-presets{grid-template-columns:repeat(4,44px)}
 }
+
+/* Keep account settings easy to reach after sign-in, including on phones. */
+.account-quick-actions{display:flex;gap:9px;flex-wrap:wrap;align-items:center;margin-top:15px}
+.account-quick-actions .btn{margin:0}
+#account-profile-panel{scroll-margin-top:20px}
+#member-profile-retry{margin:7px 0 14px}
+@media(max-width:500px){.account-quick-actions .btn{flex:1 1 150px;text-align:center}}

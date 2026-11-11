@@ -4,7 +4,7 @@
 <title>My Account and Incidents | Vote Them Off the Road</title>
 <link rel="icon" href="/assets/favicon.svg?v=brand-20261110" type="image/svg+xml">
 <link rel="stylesheet" href="/assets/styles.css?v=20261110-member-profile"><link rel="stylesheet" href="/assets/forms.css">
-<link rel="stylesheet" href="/assets/owner.css?v=20261110-member-profile-v2"></head>
+<link rel="stylesheet" href="/assets/owner.css?v=20261110-profile-editor-fix"></head>
 <body><a class="skip" href="#main">Skip to content</a>
 <div class="announcement">JURY PROFILES • POST AND VOTE YOUR WAY</div>
 <header><div class="container header-inner"><a class="brand" href="/"><span class="brand-mark" aria-hidden="true"><img src="/assets/brand/mark.svg" alt="" width="52" height="52" loading="eager"></span><span class="brand-words"><span class="brand-line">Vote Them</span><span class="brand-line brand-banner">Off the Road</span><small>You be the judge.</small></span></a>
@@ -24,13 +24,17 @@
 <div id="account-user" hidden>
   <p class="owner-hint">Signed in as</p>
   <strong id="account-user-name"></strong>
-  <button type="button" class="btn btn-secondary" id="account-sign-out">Sign out</button>
+  <div class="account-quick-actions">
+    <a class="btn btn-primary" id="account-edit-profile" href="#account-profile-panel">Change avatar & username</a>
+    <button type="button" class="btn btn-secondary" id="account-sign-out">Sign out</button>
+  </div>
 </div>
 </div>
 <section class="owner-panel" id="account-profile-panel" hidden aria-labelledby="profile-heading">
 <h2 id="profile-heading">My public profile</h2>
 <p class="owner-hint">Your profile identifies you only when you choose to display author credit on an incident. You can still post and vote as a guest.</p>
 <p id="member-profile-status" class="owner-hint" role="status" aria-live="polite">Loading profile options…</p>
+<button type="button" id="member-profile-retry" class="btn btn-secondary" hidden>Retry loading profile</button>
 <div id="member-profile-editor" hidden>
 <label class="member-profile-label" for="member-handle">Public username</label>
 <div class="member-profile-handle"><span aria-hidden="true">@</span><input id="member-handle" maxlength="20" autocomplete="off" spellcheck="false" placeholder="RoadJuror"></div>
@@ -80,5 +84,5 @@
 </div></section></main>
 <footer class="footer"><div class="container"><div class="footer-bottom"><a href="/nh/">Back to voting</a> · <a href="/guidelines/">Rules</a> · <a href="/privacy/">Privacy</a></div></div></footer>
 <script src="/assets/public-account.js?v=20261110-jury-sync" defer></script>
-<script src="/assets/account-page.js?v=20261110-member-profile" defer></script><script src="/assets/member-profile.js?v=20261110-member-profile" defer></script>
-<script src="/assets/site.js?v=20261110-member-profile" defer></script></body></html>
+<script src="/assets/account-page.js?v=20261110-member-profile" defer></script><script src="/assets/member-profile.js?v=20261110-profile-editor-fix" defer></script>
+<script src="/assets/site.js?v=20261110-profile-editor-fix" defer></script></body></html>
