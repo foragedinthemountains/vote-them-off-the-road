@@ -148,6 +148,9 @@
       passButton.type = "button";
       funnyButton.type = "button";
       if(funnyEnabled)voteActions.classList.add("has-funny");
+      offButton.setAttribute("aria-label","Vote Them Off the Road");
+      passButton.setAttribute("aria-label","Give them a pass");
+      funnyButton.setAttribute("aria-label","That's just funny");
       const voteFeedback = element("p", "feed-vote-feedback", "");
       voteFeedback.setAttribute("role", "status");
       voteFeedback.setAttribute("aria-live", "polite");
@@ -155,9 +158,9 @@
         "One reaction per account when signed in, or per browser as a guest. Changing your choice earns no extra XP.");
       let myVerdictButton = null;
       function updateVoteButtons() {
-        offButton.textContent = "🚫 Vote Them Off · " + (Number(item.off_votes) || 0);
-        passButton.textContent = "✓ Give 'Em a Pass · " + (Number(item.pass_votes) || 0);
-        funnyButton.textContent = "😂 That's Just Funny! · " + (Number(item.funny_votes) || 0);
+        offButton.textContent = "⚖ Vote Off · " + (Number(item.off_votes) || 0);
+        passButton.textContent = "✓ Pass · " + (Number(item.pass_votes) || 0);
+        funnyButton.textContent = "☺ Funny · " + (Number(item.funny_votes) || 0);
         offButton.setAttribute("aria-pressed", String(item.my_vote === "off"));
         passButton.setAttribute("aria-pressed", String(item.my_vote === "pass"));
         funnyButton.setAttribute("aria-pressed", String(item.my_vote === "funny"));
