@@ -112,6 +112,24 @@
       card.id = "incident-" + item.id;
 
       card.append(meta, element("h3", "", item.title), element("p", "feed-description", item.description || ""));
+      if(item.author?.handle){
+        const author=element("div","incident-author");
+        const avatar=element("span","incident-author-avatar");
+        const emojis=["⚖️","🚙","🚧","🛑","🚦","🏎️","👑","🦊"];
+        avatar.textContent=emojis[Number(item.author.avatar_preset)]||"⚖️";
+        if(typeof item.author.avatar_url==="string" &&
+           /^\/avatars\/[0-9a-f-]{36}$/i.test(item.author.avatar_url)){
+          const image=element("img");
+          image.src=item.author.avatar_url;
+          image.alt="";
+          image.loading="lazy";
+          avatar.replaceChildren(image);
+        }
+        author.append(avatar,element("span","",
+          "Posted by @"+item.author.handle));
+        card.append(author);
+      }
+
       if (item.category === "funny_unexpected") {
         const contest = element("a", "feed-contest-label",
           "😂 Funniest Moment of the Week contender · See standings");
