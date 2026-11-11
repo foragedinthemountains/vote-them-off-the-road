@@ -1776,9 +1776,9 @@ async function juryLeaderboard(url,env){
   const week=easternWeekKey();
   const next=shiftDateKey(week,7);
   const dated=period==="week";
-  // Canonical account key and explicitly linked guest keys match the private
-  // account XP calculation. Dedup each event_key before summing: otherwise a
-  // linked guest's past vote could be counted twice.
+  // A linked account may contain duplicate event keys from multiple browsers.
+  // Count each event once. Its first earning date determines the week, so
+  // syncing an old guest vote cannot manufacture new weekly points.
   const sql=
     "WITH juror_keys AS ("+
     "SELECT l.owner_user_id,l.account_voter_key_hash AS voter_key_hash "+
@@ -1786,27 +1786,31 @@ async function juryLeaderboard(url,env){
     "UNION SELECT l.owner_user_id,g.voter_key_hash "+
     "FROM public_juror_leaderboard l "+
     "JOIN account_voter_links g ON g.owner_user_id=l.owner_user_id),"+
-    "deduped AS (SELECT k.owner_user_id,e.event_key,MAX(e.xp) AS xp "+
+    "deduped AS (SELECT k.owner_user_id,e.event_key,MAX(e.xp) AS xp,"+
+    "MIN(e.eastern_day) AS earned_day "+
     "FROM juror_keys k JOIN jury_xp_events e "+
     "ON e.voter_key_hash=k.voter_key_hash "+
-    (dated?"WHERE e.eastern_day>=? AND e.eastern_day<? ":"")+
     "GROUP BY k.owner_user_id,e.event_key),"+
-    "sums AS (SELECT owner_user_id,SUM(xp) AS xp FROM deduped GROUP BY owner_user_id) "+
-    "SELECT p.handle,p.avatar_preset,p.avatar_key,COALESCE(s.xp,0) AS xp "+
+    "sums AS (SELECT owner_user_id,SUM(xp) AS total_xp,"+
+    "SUM(CASE WHEN earned_day>=? AND earned_day<? THEN xp ELSE 0 END) AS week_xp "+
+    "FROM deduped GROUP BY owner_user_id) "+
+    "SELECT p.handle,p.avatar_preset,p.avatar_key,"+
+    "COALESCE(s.total_xp,0) AS total_xp,COALESCE(s.week_xp,0) AS week_xp "+
     "FROM public_juror_leaderboard l "+
     "JOIN public_profiles p ON p.owner_user_id=l.owner_user_id "+
     "LEFT JOIN sums s ON s.owner_user_id=l.owner_user_id "+
     "WHERE p.handle IS NOT NULL AND length(trim(p.handle))>0 "+
-    "ORDER BY xp DESC, p.handle COLLATE NOCASE ASC LIMIT 25";
-  const statement=env.DB.prepare(sql);
-  const result=await (dated?statement.bind(week,next):statement).all();
+    "ORDER BY "+(dated?"week_xp":"total_xp")+
+    " DESC, p.handle COLLATE NOCASE ASC LIMIT 25";
+  const result=await env.DB.prepare(sql).bind(week,next).all();
   const entries=(result.results||[]).map((row,index)=>{
-    const xp=Math.max(0,Number(row.xp)||0);
-    const level=[...XP_LEVELS].reverse().find(tier=>xp>=tier.xp)||XP_LEVELS[0];
+    const totalXP=Math.max(0,Number(row.total_xp)||0);
+    const xp=dated?Math.max(0,Number(row.week_xp)||0):totalXP;
+    const level=[...XP_LEVELS].reverse().find(tier=>totalXP>=tier.xp)||XP_LEVELS[0];
     return {place:index+1,handle:row.handle,
       avatar_preset:Number(row.avatar_preset||0),
       avatar_url:row.avatar_key?"/avatars/"+row.avatar_key:null,
-      xp,rank:level.name,rank_icon:level.icon};
+      xp,total_xp:totalXP,rank:level.name,rank_icon:level.icon};
   });
   return json({ready:true,period,
     week_start:dated?week:null,week_end:dated?next:null,
