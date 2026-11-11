@@ -5,6 +5,7 @@
   if(!root||!accounts)return;
   const status=document.getElementById("member-profile-status");
   const editor=document.getElementById("member-profile-editor");
+  const retry=document.getElementById("member-profile-retry");
   const handle=document.getElementById("member-handle");
   const avatarGrid=document.getElementById("member-avatar-presets");
   const preview=document.getElementById("member-avatar-preview");
@@ -16,6 +17,7 @@
   let current=null;
   let selection=0;
   let processing=false;
+  let readyForWrites=false;
   const validPhotoUrl=url=>typeof url==="string" &&
     /^\/avatars\/[0-9a-f-]{36}$/i.test(url);
   function message(value){status.textContent=value;}
@@ -37,9 +39,9 @@
   }
   function busy(value){
     processing=value;
-    save.disabled=value;
-    uploadButton.disabled=value;
-    removeButton.disabled=value;
+    save.disabled=value||!readyForWrites;
+    uploadButton.disabled=value||!readyForWrites;
+    removeButton.disabled=value||!readyForWrites;
     avatarGrid.querySelectorAll("button").forEach(button=>button.disabled=value);
   }
   function announceUpdate(){
@@ -76,22 +78,38 @@
       root.hidden=true;
       return;
     }
+    // Show the editor immediately. Previously any API failure silently
+    // hid ALL avatar choices, so a signed-in user saw only the header icon.
     root.hidden=false;
+    editor.hidden=false;
+    retry.hidden=true;
+    readyForWrites=false;
+    busy(false);
+    showPreview();
+    message("Loading your profile…");
+    if(location.hash==="#account-profile-panel"){
+      root.scrollIntoView({block:"start",behavior:"smooth"});
+    }
     try{
       const result=await accounts.fetchAuthenticated("/api/account/profile");
       if(!result.ready){
-        editor.hidden=true;
-        message("Profile customization is being enabled. Your account and jury history still work.");
+        message(result.message||"Profile settings are not active yet. Retry after the database migration.");
+        retry.hidden=false;
         return;
       }
-      editor.hidden=false;
+      readyForWrites=true;
+      busy(false);
       renderProfile(result.profile);
-      message("Your username and avatar are public only on incidents where you enable author credit.");
+      message("Choose an avatar or photo, then save your profile. Author credit is always optional.");
     }catch(error){
-      editor.hidden=true;
-      message(error.message||"Profile customization is temporarily unavailable.");
+      message((error?.message||"Profile couldn't load.")+" Use Retry loading profile to check again.");
+      retry.hidden=false;
     }
   }
+  retry?.addEventListener("click",()=>refresh().catch(error=>{
+    message(error?.message||"Unable to check profile settings.");
+    retry.hidden=false;
+  }));
   async function compress(file){
     if(!["image/jpeg","image/png","image/webp"].includes(file.type))
       throw Error("Choose a JPG, PNG or WebP image.");
@@ -114,7 +132,7 @@
     }finally{bitmap.close();}
   }
   save.addEventListener("click",async()=>{
-    if(processing)return;
+    if(processing||!readyForWrites)return;
     const value=handle.value.trim();
     if(value&&!/^[A-Za-z][A-Za-z0-9_]{2,19}$/.test(value)){
       message("Username must be 3–20 letters, digits or underscores, starting with a letter.");
@@ -143,7 +161,7 @@
   upload.addEventListener("change",async()=>{
     const file=upload.files?.[0];
     upload.value="";
-    if(!file||processing)return;
+    if(!file||processing||!readyForWrites)return;
     busy(true);
     message("Preparing your profile photo…");
     try{
@@ -164,7 +182,7 @@
     finally{busy(false);}
   });
   removeButton.addEventListener("click",async()=>{
-    if(processing)return;
+    if(processing||!readyForWrites)return;
     busy(true);
     message("Removing your custom photo…");
     try{
