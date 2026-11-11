@@ -1619,6 +1619,12 @@ async function accountProfile(request,env){
       "UPDATE public_profiles SET handle=?,avatar_preset=?,updated_at=unixepoch() "+
       "WHERE owner_user_id=?"
     ).bind(handle||null,p.avatar_preset,auth.identity.userId).run();
+    // Clearing a public username also revokes leaderboard publication.
+    // This avoids surprising public reappearance after a later rename.
+    if(!handle && await leaderboardSchemaReady(env))
+      await env.DB.prepare(
+        "DELETE FROM public_juror_leaderboard WHERE owner_user_id=?"
+      ).bind(auth.identity.userId).run();
   }catch(error){
     if(String(error?.message||"").toLowerCase().includes("unique"))
       return json({error:"That username is taken. Choose another."},409);
