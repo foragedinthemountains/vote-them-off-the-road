@@ -84,6 +84,8 @@
             "Needs "+Math.max(0,data.minimum_votes-Number(row.total_votes))+
             " more reactions or duel points to qualify" :
             "Needs a majority of Funny reactions to qualify";
+        if(row.author?.handle)
+          card.append(el("p","weekly-author","Posted by @"+row.author.handle));
         showCoverPhoto(card,row);
         card.append(el("p","weekly-qualification",qualification));
         const controls=el("div","weekly-card-actions");
