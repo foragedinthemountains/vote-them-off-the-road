@@ -60,7 +60,7 @@
     "AUTO_HIDE_REPORT_THRESHOLD": "5",
     "WEEKLY_MIN_VOTES": "5",
     "WORKOS_CLIENT_ID": "client_01M73AN7TQVNRBPSBTVB91DVAZ",
-    "GOOGLE_LOGIN_ENABLED": "false"
+    "GOOGLE_LOGIN_ENABLED": "true"
   },
   "triggers": {
     "crons": [
