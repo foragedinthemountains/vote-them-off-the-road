@@ -74,7 +74,10 @@
         contestLink.href = "/nh/#funniest";
         actions.append(contestLink);
       }
-      main.append(label, name, meta, description, totals, actions);
+      main.append(label, name, meta);
+      if(item.author?.handle)
+        main.append(make("p","featured-author","Posted by @"+item.author.handle));
+      main.append(description, totals, actions);
       panel.append(main);
       const photo = Array.isArray(item.photos) ? item.photos[0] : null;
       if (photo && typeof photo.url === "string" && photo.url.startsWith("/media/")) {
