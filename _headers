@@ -1,6 +1,6 @@
 /*
   X-Content-Type-Options: nosniff
-  Content-Security-Policy: script-src 'self' https://challenges.cloudflare.com; object-src 'none'; base-uri 'self'; frame-ancestors 'none'
+  Content-Security-Policy: script-src 'self' https://challenges.cloudflare.com https://static.cloudflareinsights.com; object-src 'none'; base-uri 'self'; frame-ancestors 'none'
   Referrer-Policy: strict-origin-when-cross-origin
   X-Frame-Options: DENY
   Permissions-Policy: camera=(), microphone=(), geolocation=()

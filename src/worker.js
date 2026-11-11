@@ -1810,7 +1810,7 @@ async function createReport(id, request, env, ctx) {
 
 // Inlined so the authenticated dashboard works even when the static asset
 // resolver does not map /admin/ to /admin/index.html in production.
-const ADMIN_DASHBOARD_HTML = "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n<meta name=\"robots\" content=\"noindex,nofollow\"><meta name=\"theme-color\" content=\"#f7c744\">\n<title>Admin Dashboard | Vote Them Off the Road</title>\n<link rel=\"icon\" href=\"/assets/favicon.svg\" type=\"image/svg+xml\">\n<link rel=\"stylesheet\" href=\"/assets/styles.css\"><link rel=\"stylesheet\" href=\"/assets/admin.css?v=20261110-photo-gallery\"></head>\n<body><a class=\"skip\" href=\"#main\">Skip to content</a>\n<div class=\"announcement\">PRIVATE ADMIN DASHBOARD <strong>• NEW HAMPSHIRE</strong></div>\n<header><div class=\"container header-inner\">\n<a class=\"brand\" href=\"/\" aria-label=\"Vote Them Off the Road home\"><span class=\"brand-mark\" aria-hidden=\"true\">✓</span><span class=\"brand-words\">Vote Them Off<br>the Road<small>SITE MANAGEMENT.</small></span></a>\n<nav class=\"nav\"><a href=\"/nh/\" target=\"_blank\" rel=\"noopener\">Public site ↗</a><a class=\"nav-cta\" href=\"/guidelines/\" target=\"_blank\" rel=\"noopener\">Site rules ↗</a></nav>\n</div></header>\n<main id=\"main\">\n<section class=\"admin-hero\"><div class=\"container admin-hero-inner\"><div><div class=\"section-kicker\">Your control room</div><h1>Admin dashboard.</h1><p>Review reports, manage published incidents and keep the community entertaining.</p>\n<p id=\"admin-signed-in\" class=\"admin-signed-in\"></p></div>\n<button id=\"refresh-admin\" class=\"btn btn-primary\" type=\"button\">↻ Refresh dashboard</button></div></section>\n<section class=\"section admin-section\"><div class=\"container\">\n<p id=\"admin-status\" class=\"admin-status\" role=\"status\" aria-live=\"polite\">Loading dashboard…</p>\n<div class=\"admin-stats\" id=\"admin-stats\"></div>\n<div class=\"admin-heading\"><div><div class=\"section-kicker\">Reports first</div><h2>Removal requests & reports</h2></div><span class=\"admin-note\">A report does not automatically hide a post.</span></div>\n<div id=\"admin-reports\" class=\"admin-list\"></div>\n<div class=\"admin-heading admin-heading-spaced\"><div><div class=\"section-kicker\">The whole board</div><h2>Manage incidents</h2><p class=\"admin-category-help\">To change an incident category, choose a category in its card and click <strong>Save category</strong>.</p></div></div>\n<div id=\"admin-incidents\" class=\"admin-list\"></div>\n<p class=\"admin-footnote\">“Remove from site” is reversible. “Permanently delete + photos” destroys the incident, its votes and reports, and associated R2 photos. This action cannot be undone.</p>\n</div></section></main>\n<footer class=\"footer\"><div class=\"container\"><div class=\"footer-bottom\">Vote Them Off the Road • Private administrator area</div></div></footer>\n<script src=\"/assets/site.js\" defer></script><script src=\"/assets/admin.js?v=20261110-photo-gallery\" defer></script></body></html>\n";
+const ADMIN_DASHBOARD_HTML = "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n<meta name=\"robots\" content=\"noindex,nofollow\"><meta name=\"theme-color\" content=\"#f7c744\">\n<title>Admin Dashboard | Vote Them Off the Road</title>\n<link rel=\"icon\" href=\"/assets/favicon.svg\" type=\"image/svg+xml\">\n<link rel=\"stylesheet\" href=\"/assets/styles.css\"><link rel=\"stylesheet\" href=\"/assets/admin.css?v=20261110-growth-analytics\"></head>\n<body><a class=\"skip\" href=\"#main\">Skip to content</a>\n<div class=\"announcement\">PRIVATE ADMIN DASHBOARD <strong>• NEW HAMPSHIRE</strong></div>\n<header><div class=\"container header-inner\">\n<a class=\"brand\" href=\"/\" aria-label=\"Vote Them Off the Road home\"><span class=\"brand-mark\" aria-hidden=\"true\">✓</span><span class=\"brand-words\">Vote Them Off<br>the Road<small>SITE MANAGEMENT.</small></span></a>\n<nav class=\"nav\"><a href=\"/nh/\" target=\"_blank\" rel=\"noopener\">Public site ↗</a><a class=\"nav-cta\" href=\"/guidelines/\" target=\"_blank\" rel=\"noopener\">Site rules ↗</a></nav>\n</div></header>\n<main id=\"main\">\n<section class=\"admin-hero\"><div class=\"container admin-hero-inner\"><div><div class=\"section-kicker\">Your control room</div><h1>Admin dashboard.</h1><p>Review reports, manage published incidents and keep the community entertaining.</p>\n<p id=\"admin-signed-in\" class=\"admin-signed-in\"></p></div>\n<button id=\"refresh-admin\" class=\"btn btn-primary\" type=\"button\">↻ Refresh dashboard</button></div></section>\n<section class=\"section admin-section\"><div class=\"container\">\n<p id=\"admin-status\" class=\"admin-status\" role=\"status\" aria-live=\"polite\">Loading dashboard…</p>\n<div class=\"admin-stats\" id=\"admin-stats\"></div>\n<div class=\"admin-heading\"><div><div class=\"section-kicker\">Reports first</div><h2>Removal requests & reports</h2></div><span class=\"admin-note\">A report does not automatically hide a post.</span></div>\n<div id=\"admin-reports\" class=\"admin-list\"></div>\n<div class=\"admin-heading admin-heading-spaced\"><div><div class=\"section-kicker\">The whole board</div><h2>Manage incidents</h2><p class=\"admin-category-help\">To change an incident category, choose a category in its card and click <strong>Save category</strong>.</p></div></div>\n<div id=\"admin-incidents\" class=\"admin-list\"></div>\n<p class=\"admin-footnote\">“Remove from site” is reversible. “Permanently delete + photos” destroys the incident, its votes and reports, and associated R2 photos. This action cannot be undone.</p>\n</div></section></main>\n<footer class=\"footer\"><div class=\"container\"><div class=\"footer-bottom\">Vote Them Off the Road • Private administrator area</div></div></footer>\n<script src=\"/assets/site.js\" defer></script><script src=\"/assets/admin.js?v=20261110-growth-analytics\" defer></script></body></html>\n";
 
 /* Private admin API. Both Cloudflare Access and Worker-side signed JWT validation
    must succeed. No admin credentials or user report details are exposed publicly. */
@@ -2040,6 +2040,88 @@ async function adminApi(request, env, path, identity) {
       "FROM incident_author_edits WHERE incident_id=? ORDER BY created_at DESC LIMIT 25"
     ).bind(id).all();
     return json({ready:true,edits:edits.results||[]});
+  }
+  if (path === "/admin/api/growth" && request.method === "GET") {
+    const raw=new URL(request.url).searchParams.get("days")||"30";
+    if(!["7","30","90"].includes(raw))
+      return json({error:"Choose 7, 30, or 90 days"},400);
+    const days=Number(raw);
+    // UTC calendar-day boundaries match SQLite date(...,'unixepoch').
+    // This is not a per-person tracker: the activity is derived from
+    // existing browser-hashed and account-backed voting records.
+    const utcToday=Math.floor(Date.now()/86400000)*86400;
+    const start=utcToday-(days-1)*86400;
+    const vt=await activeVoteTable(env);
+    const accountsOn=await ownershipSchemaReady(env);
+    const [cases,reactions,jurors,casesByDay,votesByDay,photoPosts,members]=
+      await Promise.all([
+        env.DB.prepare(
+          "SELECT COUNT(*) AS all_posts,"+
+          "SUM(CASE WHEN status='published' THEN 1 ELSE 0 END) AS live_posts,"+
+          "SUM(CASE WHEN created_at>=? THEN 1 ELSE 0 END) AS new_posts "+
+          "FROM incidents"
+        ).bind(start).first(),
+        env.DB.prepare(
+          "SELECT COUNT(*) AS all_votes,"+
+          "SUM(CASE WHEN created_at>=? THEN 1 ELSE 0 END) AS recent_votes "+
+          "FROM "+vt
+        ).bind(start).first(),
+        env.DB.prepare(
+          "SELECT COUNT(*) AS voting_identities,"+
+          "COALESCE(SUM(CASE WHEN active_days>=2 THEN 1 ELSE 0 END),0) AS repeat_identities "+
+          "FROM (SELECT voter_key_hash,"+
+          "COUNT(DISTINCT date(created_at,'unixepoch')) AS active_days "+
+          "FROM "+vt+" WHERE created_at>=? GROUP BY voter_key_hash)"
+        ).bind(start).first(),
+        env.DB.prepare(
+          "SELECT date(created_at,'unixepoch') AS day,COUNT(*) AS n "+
+          "FROM incidents WHERE created_at>=? GROUP BY day ORDER BY day"
+        ).bind(start).all(),
+        env.DB.prepare(
+          "SELECT date(created_at,'unixepoch') AS day,COUNT(*) AS n "+
+          "FROM "+vt+" WHERE created_at>=? GROUP BY day ORDER BY day"
+        ).bind(start).all(),
+        env.DB.prepare(
+          "SELECT COUNT(DISTINCT m.incident_id) AS n FROM incident_media m "+
+          "JOIN incidents i ON i.id=m.incident_id "+
+          "WHERE i.created_at>=? AND m.media_type='image'"
+        ).bind(start).first(),
+        accountsOn ? env.DB.prepare(
+          "SELECT COUNT(*) AS n FROM public_members WHERE created_at>=?"
+        ).bind(start).first() : Promise.resolve(null)
+      ]);
+    const toNum=value=>Math.max(0,Number(value)||0);
+    const postMap=new Map((casesByDay.results||[]).map(row=>
+      [row.day,toNum(row.n)]));
+    const voteMap=new Map((votesByDay.results||[]).map(row=>
+      [row.day,toNum(row.n)]));
+    const timeline=Array.from({length:days},(_,index)=>{
+      const day=new Date((start+index*86400)*1000).toISOString().slice(0,10);
+      return {day,submissions:postMap.get(day)||0,reactions:voteMap.get(day)||0};
+    });
+    const voters=toNum(jurors?.voting_identities);
+    const repeat=toNum(jurors?.repeat_identities);
+    return json({ready:true,days,time_basis:"UTC",start_day:timeline[0].day,
+      end_day:timeline[timeline.length-1].day,
+      totals:{
+        submissions:toNum(cases?.all_posts),
+        published:toNum(cases?.live_posts),
+        reactions:toNum(reactions?.all_votes)
+      },
+      period:{
+        submissions:toNum(cases?.new_posts),
+        photo_submissions:toNum(photoPosts?.n),
+        reactions:toNum(reactions?.recent_votes),
+        active_voter_identities:voters,
+        repeat_voter_identities:repeat,
+        repeat_voter_percent:voters?Math.round(repeat/voters*100):0,
+        new_accounts:accountsOn?toNum(members?.n):null
+      },
+      daily:timeline,
+      explanation:"Repeat voters are browser/account voting identities with "+
+        "votes recorded on at least two separate UTC dates within this period, "+
+        "not verified people or all returning site visitors."
+    });
   }
   if (path === "/admin/api/analytics" && request.method === "GET") {
     const enhanced = await featureSchemaReady(env);
