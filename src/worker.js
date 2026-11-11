@@ -1539,6 +1539,214 @@ async function accountXP(request,env){
     }))
   });
 }
+// Public juror profiles are strictly optional. 0007 defaults every past
+// incident to anonymous. Accounts and private ownership still work before
+// the migration is applied.
+let profileSchemaCache={until:0,ready:false};
+async function profileSchemaReady(env){
+  if(!env.DB)return false;
+  if(profileSchemaCache.until>Date.now())return profileSchemaCache.ready;
+  try{
+    const marker=await env.DB.prepare(
+      "SELECT id FROM profile_migration_complete WHERE id=1"
+    ).first();
+    if(!marker)throw Error("Profile migration missing");
+    await env.DB.prepare("SELECT owner_user_id FROM public_profiles LIMIT 0").all();
+    await env.DB.prepare("SELECT incident_id FROM incident_attribution LIMIT 0").all();
+    profileSchemaCache={until:Date.now()+30000,ready:true};
+  }catch{
+    profileSchemaCache={until:Date.now()+30000,ready:false};
+  }
+  return profileSchemaCache.ready;
+}
+const profileHandles=/^[A-Za-z][A-Za-z0-9_]{2,19}$/;
+const reservedHandles=new Set(["admin","administrator","moderator","staff",
+  "support","vtor","official","anonymous","system","root","police"]);
+const avatarIdPattern=/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const publicProfileFields=
+  "SELECT handle,avatar_preset,avatar_key,avatar_type "+
+  "FROM public_profiles WHERE owner_user_id=?";
+function publicProfileRecord(row){
+  return {handle:row?.handle||null,avatar_preset:Number(row?.avatar_preset||0),
+    avatar_url:row?.avatar_key?"/avatars/"+row.avatar_key:null};
+}
+async function accountProfile(request,env){
+  const auth=await publicAccountIdentity(request,env);
+  if(auth.error)return auth.error;
+  if(!(await profileSchemaReady(env)))
+    return json({ready:false,message:"Profile setup is not active yet."});
+  if(request.method==="GET"){
+    const row=await env.DB.prepare(publicProfileFields)
+      .bind(auth.identity.userId).first();
+    return json({ready:true,profile:publicProfileRecord(row)});
+  }
+  if(request.method!=="PATCH")return json({error:"Method not allowed"},405);
+  if(!isCommunityActionAllowed(request))
+    return json({error:"Invalid request origin"},403);
+  if(!(await limitJuryAction(request,env)))
+    return json({error:"Too many profile changes. Try again shortly."},429);
+  const parsed=await parseBody(request);
+  if(parsed.error)return json({error:parsed.error},parsed.status);
+  const p=parsed.value;
+  if(typeof p.handle!=="string" || !Number.isInteger(p.avatar_preset) ||
+     p.avatar_preset<0 || p.avatar_preset>7)
+    return json({error:"Choose a username and one of the eight avatars"},400);
+  const handle=p.handle.trim();
+  if(handle && (!profileHandles.test(handle) ||
+      reservedHandles.has(handle.toLowerCase())))
+    return json({error:"Use 3–20 characters, starting with a letter. Letters, numbers and underscores only."},400);
+  try{
+    await env.DB.prepare(
+      "INSERT OR IGNORE INTO public_profiles(owner_user_id) VALUES(?)"
+    ).bind(auth.identity.userId).run();
+    await env.DB.prepare(
+      "UPDATE public_profiles SET handle=?,avatar_preset=?,updated_at=unixepoch() "+
+      "WHERE owner_user_id=?"
+    ).bind(handle||null,p.avatar_preset,auth.identity.userId).run();
+  }catch(error){
+    if(String(error?.message||"").toLowerCase().includes("unique"))
+      return json({error:"That username is taken. Choose another."},409);
+    throw error;
+  }
+  const updated=await env.DB.prepare(publicProfileFields)
+    .bind(auth.identity.userId).first();
+  return json({ready:true,profile:publicProfileRecord(updated)});
+}
+async function accountAvatar(request,env){
+  const auth=await publicAccountIdentity(request,env);
+  if(auth.error)return auth.error;
+  if(!(await profileSchemaReady(env)))
+    return json({error:"Profile setup is not active yet."},503);
+  if(request.method!=="POST" && request.method!=="DELETE")
+    return json({error:"Method not allowed"},405);
+  if(!isCommunityActionAllowed(request))
+    return json({error:"Invalid request origin"},403);
+  if(!(await limitJuryAction(request,env)))
+    return json({error:"Too many avatar updates. Try again shortly."},429);
+  const previous=await env.DB.prepare(publicProfileFields)
+    .bind(auth.identity.userId).first();
+  if(request.method==="DELETE"){
+    await env.DB.prepare(
+      "UPDATE public_profiles SET avatar_key=NULL,avatar_type=NULL,"+
+      "updated_at=unixepoch() WHERE owner_user_id=?"
+    ).bind(auth.identity.userId).run();
+    if(previous?.avatar_key)await env.PHOTOS?.delete("avatars/"+previous.avatar_key).catch(()=>{});
+    return json({ready:true,profile:publicProfileRecord({
+      ...previous,avatar_key:null,avatar_type:null
+    })});
+  }
+  if(!env.PHOTOS)return json({error:"Avatar storage is not available"},503);
+  const type=(request.headers.get("Content-Type")||"").split(";")[0].trim().toLowerCase();
+  if(type!=="image/webp" && type!=="image/jpeg" && type!=="image/png")
+    return json({error:"Upload a JPG, PNG or WebP photo"},415);
+  const limit=256*1024;
+  const declared=Number(request.headers.get("Content-Length")||0);
+  if(declared>limit)return json({error:"Profile photos must be under 256 KB"},413);
+  // Stream with a real byte limit even when no Content-Length was sent.
+  const reader=request.body?.getReader();
+  if(!reader)return json({error:"No image received"},400);
+  const chunks=[];
+  let total=0;
+  for(;;){
+    const {done,value}=await reader.read();
+    if(done)break;
+    total+=value.byteLength;
+    if(total>limit){await reader.cancel();return json({
+      error:"Profile photo too large. Try a smaller image."},413);}
+    chunks.push(value);
+  }
+  if(total<100)return json({error:"Photo is empty or invalid"},400);
+  const bytes=new Uint8Array(total);
+  let pos=0;
+  for(const chunk of chunks){bytes.set(chunk,pos);pos+=chunk.byteLength;}
+  if(!imageSignatureIsValid(bytes.slice(0,12),type))
+    return json({error:"Image contents don't match its file format"},400);
+  const newId=crypto.randomUUID();
+  const key="avatars/"+newId;
+  await env.PHOTOS.put(key,bytes,{
+    httpMetadata:{contentType:type,contentDisposition:"inline"}
+  });
+  try{
+    await env.DB.prepare(
+      "INSERT OR IGNORE INTO public_profiles(owner_user_id) VALUES(?)"
+    ).bind(auth.identity.userId).run();
+    await env.DB.prepare(
+      "UPDATE public_profiles SET avatar_key=?,avatar_type=?,updated_at=unixepoch() "+
+      "WHERE owner_user_id=?"
+    ).bind(newId,type,auth.identity.userId).run();
+  }catch(error){
+    await env.PHOTOS.delete(key).catch(()=>{});
+    throw error;
+  }
+  if(previous?.avatar_key && previous.avatar_key!==newId)
+    await env.PHOTOS.delete("avatars/"+previous.avatar_key).catch(()=>{});
+  const updated=await env.DB.prepare(publicProfileFields)
+    .bind(auth.identity.userId).first();
+  return json({ready:true,profile:publicProfileRecord(updated)});
+}
+async function serveAvatar(id,env){
+  if(!avatarIdPattern.test(id) || !(await profileSchemaReady(env)) || !env.PHOTOS)
+    return new Response("Not found",{status:404});
+  const row=await env.DB.prepare(
+    "SELECT avatar_type FROM public_profiles WHERE avatar_key=?"
+  ).bind(id).first();
+  if(!row || !photoTypes.has(row.avatar_type))
+    return new Response("Not found",{status:404});
+  const image=await env.PHOTOS.get("avatars/"+id);
+  if(!image?.body)return new Response("Not found",{status:404});
+  return new Response(image.body,{headers:{
+    "Content-Type":row.avatar_type,
+    "Cache-Control":"private, no-store",
+    "X-Content-Type-Options":"nosniff",
+    "X-Robots-Tag":"noindex, noimageindex",
+    "Cross-Origin-Resource-Policy":"same-origin"
+  }});
+}
+async function attachPublicAuthors(rows,env){
+  if(!rows.length || !(await profileSchemaReady(env)))return rows;
+  const ids=[...new Set(rows.map(row=>row.id))];
+  const qs=ids.map(()=>"?").join(",");
+  const result=await env.DB.prepare(
+    "SELECT a.incident_id,p.handle,p.avatar_preset,p.avatar_key "+
+    "FROM incident_attribution a "+
+    "JOIN incident_ownership o ON o.incident_id=a.incident_id "+
+    "JOIN public_profiles p ON p.owner_user_id=o.owner_user_id "+
+    "JOIN incidents i ON i.id=a.incident_id "+
+    "WHERE a.show_author=1 AND i.status='published' "+
+    "AND p.handle IS NOT NULL AND a.incident_id IN ("+qs+")"
+  ).bind(...ids).all();
+  const byId=new Map((result.results||[]).map(row=>[
+    row.incident_id,{handle:row.handle,
+      avatar_preset:Number(row.avatar_preset||0),
+      avatar_url:row.avatar_key?"/avatars/"+row.avatar_key:null}
+  ]));
+  return rows.map(row=>({...row,author:byId.get(row.id)||null}));
+}
+async function changeIncidentCredit(request,env,id){
+  if(!isCommunityActionAllowed(request))
+    return json({error:"Invalid request origin"},403);
+  if(!(await profileSchemaReady(env)))
+    return json({error:"Profile setup is not active yet"},503);
+  const owner=await ownerForIncident(request,env,id);
+  if(owner.error)return owner.error;
+  if(owner.method!=="account" || !owner.identity?.userId)
+    return json({error:"Sign in with the account that owns this incident"},403);
+  const parsed=await parseBody(request);
+  if(parsed.error)return json({error:parsed.error},parsed.status);
+  if(typeof parsed.value.show_author!=="boolean")
+    return json({error:"Choose whether the author is public"},400);
+  if(parsed.value.show_author){
+    const p=await env.DB.prepare(publicProfileFields)
+      .bind(owner.identity.userId).first();
+    if(!p?.handle)return json({error:"Choose a public username in My Account first"},409);
+  }
+  await env.DB.prepare(
+    "INSERT INTO incident_attribution(incident_id,show_author) VALUES(?,?) "+
+    "ON CONFLICT(incident_id) DO UPDATE SET show_author=excluded.show_author"
+  ).bind(id,parsed.value.show_author?1:0).run();
+  return json({ok:true,show_author:parsed.value.show_author});
+}
+
 async function accountMyIncidents(request,env){
   const auth=await publicAccountIdentity(request,env);
   if(auth.error)return auth.error;
