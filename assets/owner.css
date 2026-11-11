@@ -132,3 +132,13 @@
 .member-leaderboard-label small{display:block;font-size:12px;color:#4c5249;font-weight:500;line-height:1.5;margin-top:4px}
 .member-leaderboard-link{display:inline-block;margin-top:4px;font-size:13px;font-weight:850;color:#183b2e;text-decoration:underline;text-underline-offset:3px}
 #member-leaderboard-status{margin:10px 0 4px}
+
+
+/* One-click Google sign-in appears only after production OAuth is configured. */
+#account-signin{display:flex;flex-wrap:wrap;align-items:center;gap:10px}
+#account-signin[hidden]{display:none}
+#account-signin .owner-hint{flex-basis:100%;margin:4px 0 0}
+#account-sign-google.account-google{background:#fff;color:#171717;border:2px solid #333;display:inline-flex;align-items:center;gap:12px;justify-content:center}
+#account-sign-google[hidden]{display:none!important}
+#account-sign-google .google-g{display:inline-flex;align-items:center;justify-content:center;width:25px;height:25px;background:#fff;border-radius:50%;font:900 19px/1 Arial,Helvetica,sans-serif;color:#4285f4}
+@media(max-width:560px){#account-signin .btn{width:100%}}

@@ -5,6 +5,7 @@
   const eyebrow=document.querySelector("#account-eyebrow");
   const signIn=document.querySelector("#account-signin");
   const signInButton=document.querySelector("#account-sign-in");
+  const googleSignIn=document.querySelector("#account-sign-google");
   const signUpButton=document.querySelector("#account-sign-up");
   const signOutButton=document.querySelector("#account-sign-out");
   const loggedIn=document.querySelector("#account-user");
@@ -159,6 +160,7 @@
       loggedIn.hidden=true;incidentPanel.hidden=true;historyPanel.hidden=true;
       if(dashboardPanel)dashboardPanel.hidden=true;
       signIn.hidden=false;
+      if(googleSignIn)googleSignIn.hidden=!accounts.state.googleEnabled;
       const callbackStatus=new URLSearchParams(location.search).get("auth");
       const reason=new URLSearchParams(location.search).get("reason");
       const safeReasons=new Set(["configuration","workos_authorization",
@@ -303,6 +305,7 @@
   }
   for(const [button,action] of [
     [signInButton,()=>accounts.signIn()],
+    [googleSignIn,()=>accounts.signInWithGoogle()],
     [signUpButton,()=>accounts.signUp()],
     [signOutButton,()=>accounts.signOut()]
   ]){

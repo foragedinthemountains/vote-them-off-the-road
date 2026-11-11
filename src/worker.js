@@ -2722,6 +2722,7 @@ export default {
         const enabled=await authConfigReady(env);
         return json({enabled,ownership_enabled:await ownershipSchemaReady(env),
           provider:enabled?"workos":null,
+          google_login_enabled:enabled && env.GOOGLE_LOGIN_ENABLED==="true",
           client_id:enabled?env.WORKOS_CLIENT_ID:null});
       }
       if(pathname==="/api/account/me" && request.method==="GET")

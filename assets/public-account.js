@@ -2,7 +2,7 @@
 // The Worker owns WorkOS session exchange and refresh. No browser SDK, API key,
 // or refresh token is exposed to JavaScript. Access tokens stay in memory only.
 (() => {
-  const state={enabled:false,user:null,error:null};
+  const state={enabled:false,googleEnabled:false,user:null,error:null};
   let token=null,expiry=0,loading=null,lastSessionCheck=0;
   async function session(force=false) {
     if(loading)return loading;
@@ -36,6 +36,7 @@
       const config=await response.json();
       if(config.enabled!==true || config.provider!=="workos")return state;
       state.enabled=true;
+      state.googleEnabled=config.google_login_enabled===true;
       await session();
     }catch(error){
       state.error=error?.message||"Sign-in is temporarily unavailable";
@@ -96,6 +97,12 @@
     if(!state.enabled)throw Error("Public sign-in isn't enabled yet");
     location.assign("/api/auth/start?mode=signin");
   }
+  async function signInWithGoogle(){
+    await ready;
+    if(!state.enabled || !state.googleEnabled)
+      throw Error("Google sign-in is not enabled yet");
+    location.assign("/api/auth/start?provider=google");
+  }
   async function signUp(){
     await ready;
     if(!state.enabled)throw Error("Public registration isn't enabled yet");
@@ -119,6 +126,6 @@
     location.assign(target.href);
   }
   window.VTORAccounts={
-    ready,state,getUser,signIn,signUp,signOut,getToken,fetchAuthenticated,juryFetch
+    ready,state,getUser,signIn,signInWithGoogle,signUp,signOut,getToken,fetchAuthenticated,juryFetch
   };
 })();

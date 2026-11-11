@@ -59,7 +59,8 @@
     "ADMIN_ACCESS_TEAM": "dawn-bush-fcfd.cloudflareaccess.com",
     "AUTO_HIDE_REPORT_THRESHOLD": "5",
     "WEEKLY_MIN_VOTES": "5",
-    "WORKOS_CLIENT_ID": "client_01M73AN7TQVNRBPSBTVB91DVAZ"
+    "WORKOS_CLIENT_ID": "client_01M73AN7TQVNRBPSBTVB91DVAZ",
+    "GOOGLE_LOGIN_ENABLED": "false"
   },
   "triggers": {
     "crons": [

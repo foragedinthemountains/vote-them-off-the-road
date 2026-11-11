@@ -8,7 +8,7 @@ const ACCOUNT_URL = ORIGIN + "/nh/account/";
 const WORKOS_API = "https://api.workos.com";
 const SESSION_COOKIE = "__Host-vtor_session";
 const FLOW_COOKIE = "__Host-vtor_oauth";
-const SESSION_TTL = 7 * 24 * 60 * 60; // App cookie ceiling; WorkOS may end sooner.
+const SESSION_TTL = 30 * 24 * 60 * 60; // App cookie ceiling; WorkOS may end sooner.
 const FLOW_TTL = 10 * 60;
 const NO_STORE = {"Cache-Control":"private, no-store","X-Content-Type-Options":"nosniff",
   "Referrer-Policy":"no-referrer"};
@@ -176,12 +176,17 @@ export async function authStart(request,env) {
   if(!(await authConfigReady(env)))return failure("Sign-in is not configured",503);
   const url=new URL(request.url);
   const signUp=url.searchParams.get("mode")==="signup";
+  const google=url.searchParams.get("provider")==="google";
+  // A direct Google login is available only after the production Google
+  // OAuth client has been configured in WorkOS. AuthKit remains the default.
+  if(google && env.GOOGLE_LOGIN_ENABLED!=="true")
+    return failure("Google sign-in is not enabled yet",404);
   const verifier=randomB64(),state=randomB64();
   const challenge=b64url(new Uint8Array(await crypto.subtle.digest(
     "SHA-256",new TextEncoder().encode(verifier))));
   const authUrl=new URL(WORKOS_API+"/user_management/authorize");
   authUrl.searchParams.set("response_type","code");
-  authUrl.searchParams.set("provider","authkit");
+  authUrl.searchParams.set("provider",google?"GoogleOAuth":"authkit");
   authUrl.searchParams.set("client_id",safeClientId(env));
   authUrl.searchParams.set("redirect_uri",ACCOUNT_URL);
   authUrl.searchParams.set("state",state);
