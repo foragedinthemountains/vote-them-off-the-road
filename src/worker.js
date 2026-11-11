@@ -1738,6 +1738,124 @@ async function attachPublicAuthors(rows,env){
   ]));
   return rows.map(row=>({...row,author:byId.get(row.id)||null}));
 }
+// Public juror standings are opt-in and never expose WorkOS IDs, emails,
+// linked guest keys, account voting hashes, or non-participant XP.
+let leaderboardSchemaCache={until:0,ready:false};
+async function leaderboardSchemaReady(env){
+  if(!env.DB)return false;
+  if(leaderboardSchemaCache.until>Date.now())return leaderboardSchemaCache.ready;
+  try{
+    const marker=await env.DB.prepare(
+      "SELECT id FROM leaderboard_migration_complete WHERE id=1"
+    ).first();
+    if(!marker)throw Error("Leaderboard migration missing");
+    await env.DB.prepare(
+      "SELECT owner_user_id FROM public_juror_leaderboard LIMIT 0"
+    ).all();
+    leaderboardSchemaCache={until:Date.now()+30000,ready:true};
+  }catch{
+    leaderboardSchemaCache={until:Date.now()+30000,ready:false};
+  }
+  return leaderboardSchemaCache.ready;
+}
+async function juryLeaderboard(url,env){
+  const period=url.searchParams.get("period")||"week";
+  if(!["week","all"].includes(period))
+    return json({error:"Choose this week or all time"},400);
+  const ready=await Promise.all([
+    profileSchemaReady(env),leaderboardSchemaReady(env),xpSchemaReady(env)
+  ]).then(values=>values.every(Boolean));
+  if(!ready)return json({ready:false,period,entries:[],
+    message:"Public juror standings are being set up."});
+  const week=easternWeekKey();
+  const next=shiftDateKey(week,7);
+  const dated=period==="week";
+  // Canonical account key and explicitly linked guest keys match the private
+  // account XP calculation. Dedup each event_key before summing: otherwise a
+  // linked guest's past vote could be counted twice.
+  const sql=
+    "WITH juror_keys AS ("+
+    "SELECT l.owner_user_id,l.account_voter_key_hash AS voter_key_hash "+
+    "FROM public_juror_leaderboard l "+
+    "UNION SELECT l.owner_user_id,g.voter_key_hash "+
+    "FROM public_juror_leaderboard l "+
+    "JOIN account_voter_links g ON g.owner_user_id=l.owner_user_id),"+
+    "deduped AS (SELECT k.owner_user_id,e.event_key,MAX(e.xp) AS xp "+
+    "FROM juror_keys k JOIN jury_xp_events e "+
+    "ON e.voter_key_hash=k.voter_key_hash "+
+    (dated?"WHERE e.eastern_day>=? AND e.eastern_day<? ":"")+
+    "GROUP BY k.owner_user_id,e.event_key),"+
+    "sums AS (SELECT owner_user_id,SUM(xp) AS xp FROM deduped GROUP BY owner_user_id) "+
+    "SELECT p.handle,p.avatar_preset,p.avatar_key,COALESCE(s.xp,0) AS xp "+
+    "FROM public_juror_leaderboard l "+
+    "JOIN public_profiles p ON p.owner_user_id=l.owner_user_id "+
+    "LEFT JOIN sums s ON s.owner_user_id=l.owner_user_id "+
+    "WHERE p.handle IS NOT NULL AND length(trim(p.handle))>0 "+
+    "ORDER BY xp DESC, p.handle COLLATE NOCASE ASC LIMIT 25";
+  const statement=env.DB.prepare(sql);
+  const result=await (dated?statement.bind(week,next):statement).all();
+  const entries=(result.results||[]).map((row,index)=>{
+    const xp=Math.max(0,Number(row.xp)||0);
+    const level=[...XP_LEVELS].reverse().find(tier=>xp>=tier.xp)||XP_LEVELS[0];
+    return {place:index+1,handle:row.handle,
+      avatar_preset:Number(row.avatar_preset||0),
+      avatar_url:row.avatar_key?"/avatars/"+row.avatar_key:null,
+      xp,rank:level.name,rank_icon:level.icon};
+  });
+  return json({ready:true,period,
+    week_start:dated?week:null,week_end:dated?next:null,
+    entries,
+    explanation:"Only members who explicitly joined appear here. "+
+      "XP comes from jury votes and games; linked guest activity is "+
+      "deduplicated by event. A username does not prove a distinct person."});
+}
+async function accountLeaderboard(request,env){
+  const auth=await publicAccountIdentity(request,env);
+  if(auth.error)return auth.error;
+  const ready=await Promise.all([
+    profileSchemaReady(env),leaderboardSchemaReady(env),xpSchemaReady(env)
+  ]).then(values=>values.every(Boolean));
+  if(!ready){
+    if(request.method==="GET")
+      return json({ready:false,visible:false,
+        message:"Public juror standings are not active yet."});
+    return json({error:"Public juror standings are not active yet."},503);
+  }
+  const userId=auth.identity.userId;
+  if(request.method==="GET"){
+    const row=await env.DB.prepare(
+      "SELECT 1 FROM public_juror_leaderboard WHERE owner_user_id=?"
+    ).bind(userId).first();
+    return json({ready:true,visible:!!row});
+  }
+  if(request.method!=="POST")return json({error:"Method not allowed"},405);
+  if(!isCommunityActionAllowed(request))
+    return json({error:"Invalid request origin"},403);
+  if(!(await limitJuryAction(request,env)))
+    return json({error:"Too many changes. Try again shortly."},429);
+  const body=await parseBody(request);
+  if(body.error)return json({error:body.error},body.status);
+  if(typeof body.value.visible!=="boolean")
+    return json({error:"Choose whether your profile appears publicly"},400);
+  if(body.value.visible){
+    const profile=await env.DB.prepare(publicProfileFields).bind(userId).first();
+    if(!profile?.handle)
+      return json({error:"Save a public username before joining the leaderboard"},409);
+    const key=await accountJuryKey(userId);
+    await env.DB.prepare(
+      "INSERT INTO public_juror_leaderboard "+
+      "(owner_user_id,account_voter_key_hash) VALUES(?,?) "+
+      "ON CONFLICT(owner_user_id) DO UPDATE SET "+
+      "account_voter_key_hash=excluded.account_voter_key_hash"
+    ).bind(userId,key).run();
+  }else{
+    await env.DB.prepare(
+      "DELETE FROM public_juror_leaderboard WHERE owner_user_id=?"
+    ).bind(userId).run();
+  }
+  return json({ready:true,visible:body.value.visible});
+}
+
 async function changeIncidentCredit(request,env,id){
   if(!isCommunityActionAllowed(request))
     return json({error:"Invalid request origin"},403);
@@ -2602,6 +2720,10 @@ export default {
         return accountXP(request,env);
       if(pathname==="/api/account/profile")
         return accountProfile(request,env);
+      if(pathname==="/api/account/leaderboard")
+        return accountLeaderboard(request,env);
+      if(pathname==="/api/jury/leaderboard" && request.method==="GET")
+        return juryLeaderboard(url,env);
       if(pathname==="/api/account/avatar")
         return accountAvatar(request,env);
       const creditRoute=/^\/api\/account\/incidents\/([A-Za-z0-9_-]{6,80})\/credit$/.exec(pathname);
