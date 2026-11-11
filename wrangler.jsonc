@@ -19,7 +19,8 @@
       "/admin",
       "/admin/*",
       "/nh/",
-      "/nh/account/*"
+      "/nh/account/*",
+      "/avatars/*"
     ]
   },
   "d1_databases": [
