@@ -1,0 +1,51 @@
+
+/* Public, explicitly opt-in Jury XP standings. */
+.leaderboard-top-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:20px}
+.leaderboard-board{background:#fffdf5;border:2px solid #050505;border-radius:20px;padding:clamp(15px,3vw,30px);box-shadow:6px 7px 0 #050505;max-width:1050px;margin:0 auto}
+.leaderboard-heading{display:flex;justify-content:space-between;align-items:flex-end;gap:20px;flex-wrap:wrap;padding-bottom:18px;border-bottom:2px solid #e5ddbe}
+.leaderboard-heading h2{font:900 clamp(28px,5vw,46px)/1 'Barlow Condensed',Impact,sans-serif;margin:8px 0 0}
+.leaderboard-period{display:flex;gap:0;border:2px solid #050505;border-radius:12px;overflow:hidden;flex-shrink:0}
+.leaderboard-period button{border:0;padding:12px 18px;font:900 14px 'DM Sans',system-ui,sans-serif;cursor:pointer;background:#fffdf5;color:#050505}
+.leaderboard-period button+button{border-left:2px solid #050505}
+.leaderboard-period button[aria-pressed="true"]{background:#FFD200}
+.leaderboard-period button:focus-visible{outline:3px solid #2577c6;outline-offset:-4px}
+.leaderboard-status{font-size:13px;color:#4c514a;margin:16px 0}
+.leaderboard-list{list-style:none;padding:0;margin:8px 0 0;display:flex;flex-direction:column;gap:9px;counter-reset:none}
+.leaderboard-juror{display:flex;align-items:center;gap:clamp(10px,2vw,20px);padding:13px clamp(12px,2vw,22px);background:#f3f0e5;border:1px solid #d4cdbb;border-radius:14px;min-width:0}
+.leaderboard-juror.podium{border:2px solid #050505;background:#fff4bd}
+.leaderboard-juror:first-child{background:#FFD200;box-shadow:3px 4px 0 #050505}
+.leaderboard-place{flex:0 0 38px;text-align:center;font:900 22px 'Barlow Condensed',Impact,sans-serif}
+.leaderboard-avatar{width:54px;height:54px;flex:0 0 54px;border:3px solid #050505;border-radius:50%;background:#FFD200;display:flex;align-items:center;justify-content:center;font-size:30px;overflow:hidden}
+.leaderboard-avatar img{width:100%;height:100%;object-fit:cover}
+.leaderboard-identity{display:flex;flex-direction:column;gap:4px;min-width:0;flex:1 1 auto}
+.leaderboard-identity strong{font:900 clamp(19px,3vw,27px)/1.15 'Barlow Condensed',Impact,sans-serif;overflow-wrap:anywhere}
+.leaderboard-tier{font-size:12px;font-weight:700;color:#4d5049}
+.leaderboard-score{display:flex;flex-direction:column;text-align:right;gap:3px;flex:0 0 auto}
+.leaderboard-score strong{font:900 clamp(21px,3.5vw,31px)/1 'Barlow Condensed',Impact,sans-serif;color:#050505}
+.leaderboard-score span{font-size:11px;font-weight:650;color:#424b43}
+.leaderboard-empty{text-align:center;padding:clamp(22px,5vw,48px) 20px;background:#f5f0df;border:1px dashed #bdab74;border-radius:14px}
+.leaderboard-empty strong{font:900 26px 'Barlow Condensed',Impact,sans-serif}
+.leaderboard-empty p{margin:12px auto;max-width:480px}
+.leaderboard-empty .btn{margin-top:10px}
+.leaderboard-explainer{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;max-width:1050px;margin:28px auto 0}
+.leaderboard-explainer>div{padding:22px;border:1px solid #d9d2c0;border-radius:14px;background:#fffdf5}
+.leaderboard-explainer h3{font:900 26px 'Barlow Condensed',Impact,sans-serif;margin:0 0 8px}
+.leaderboard-explainer p{color:#414c45;line-height:1.55;font-size:14px}
+.leaderboard-explainer .btn{margin-top:8px}
+@media(max-width:740px){
+ .leaderboard-explainer{grid-template-columns:1fr}
+ .leaderboard-score span{max-width:150px}
+}
+@media(max-width:480px){
+ .leaderboard-board{box-shadow:3px 4px 0 #050505}
+ .leaderboard-heading{align-items:stretch}
+ .leaderboard-period{width:100%}
+ .leaderboard-period button{flex:1}
+ .leaderboard-juror{gap:8px;padding:10px 8px}
+ .leaderboard-place{flex-basis:28px;font-size:18px}
+ .leaderboard-avatar{width:39px;height:39px;flex-basis:39px;font-size:22px;border-width:2px}
+ .leaderboard-identity strong{font-size:18px}
+ .leaderboard-tier{font-size:10px}
+ .leaderboard-score strong{font-size:20px}
+ .leaderboard-score span{font-size:9px;max-width:89px}
+}
