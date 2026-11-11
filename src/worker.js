@@ -2041,6 +2041,88 @@ async function adminApi(request, env, path, identity) {
     ).bind(id).all();
     return json({ready:true,edits:edits.results||[]});
   }
+  if (path === "/admin/api/growth" && request.method === "GET") {
+    const raw=new URL(request.url).searchParams.get("days")||"30";
+    if(!["7","30","90"].includes(raw))
+      return json({error:"Choose 7, 30, or 90 days"},400);
+    const days=Number(raw);
+    // UTC calendar-day boundaries match SQLite date(...,'unixepoch').
+    // This is not a per-person tracker: the activity is derived from
+    // existing browser-hashed and account-backed voting records.
+    const utcToday=Math.floor(Date.now()/86400000)*86400;
+    const start=utcToday-(days-1)*86400;
+    const vt=await activeVoteTable(env);
+    const accountsOn=await ownershipSchemaReady(env);
+    const [cases,reactions,jurors,casesByDay,votesByDay,photoPosts,members]=
+      await Promise.all([
+        env.DB.prepare(
+          "SELECT COUNT(*) AS all_posts,"+
+          "SUM(CASE WHEN status='published' THEN 1 ELSE 0 END) AS live_posts,"+
+          "SUM(CASE WHEN created_at>=? THEN 1 ELSE 0 END) AS new_posts "+
+          "FROM incidents"
+        ).bind(start).first(),
+        env.DB.prepare(
+          "SELECT COUNT(*) AS all_votes,"+
+          "SUM(CASE WHEN created_at>=? THEN 1 ELSE 0 END) AS recent_votes "+
+          "FROM "+vt
+        ).bind(start).first(),
+        env.DB.prepare(
+          "SELECT COUNT(*) AS voting_identities,"+
+          "COALESCE(SUM(CASE WHEN active_days>=2 THEN 1 ELSE 0 END),0) AS repeat_identities "+
+          "FROM (SELECT voter_key_hash,"+
+          "COUNT(DISTINCT date(created_at,'unixepoch')) AS active_days "+
+          "FROM "+vt+" WHERE created_at>=? GROUP BY voter_key_hash)"
+        ).bind(start).first(),
+        env.DB.prepare(
+          "SELECT date(created_at,'unixepoch') AS day,COUNT(*) AS n "+
+          "FROM incidents WHERE created_at>=? GROUP BY day ORDER BY day"
+        ).bind(start).all(),
+        env.DB.prepare(
+          "SELECT date(created_at,'unixepoch') AS day,COUNT(*) AS n "+
+          "FROM "+vt+" WHERE created_at>=? GROUP BY day ORDER BY day"
+        ).bind(start).all(),
+        env.DB.prepare(
+          "SELECT COUNT(DISTINCT m.incident_id) AS n FROM incident_media m "+
+          "JOIN incidents i ON i.id=m.incident_id "+
+          "WHERE i.created_at>=? AND m.media_type='image'"
+        ).bind(start).first(),
+        accountsOn ? env.DB.prepare(
+          "SELECT COUNT(*) AS n FROM public_members WHERE created_at>=?"
+        ).bind(start).first() : Promise.resolve(null)
+      ]);
+    const toNum=value=>Math.max(0,Number(value)||0);
+    const postMap=new Map((casesByDay.results||[]).map(row=>
+      [row.day,toNum(row.n)]));
+    const voteMap=new Map((votesByDay.results||[]).map(row=>
+      [row.day,toNum(row.n)]));
+    const timeline=Array.from({length:days},(_,index)=>{
+      const day=new Date((start+index*86400)*1000).toISOString().slice(0,10);
+      return {day,submissions:postMap.get(day)||0,reactions:voteMap.get(day)||0};
+    });
+    const voters=toNum(jurors?.voting_identities);
+    const repeat=toNum(jurors?.repeat_identities);
+    return json({ready:true,days,time_basis:"UTC",start_day:timeline[0].day,
+      end_day:timeline[timeline.length-1].day,
+      totals:{
+        submissions:toNum(cases?.all_posts),
+        published:toNum(cases?.live_posts),
+        reactions:toNum(reactions?.all_votes)
+      },
+      period:{
+        submissions:toNum(cases?.new_posts),
+        photo_submissions:toNum(photoPosts?.n),
+        reactions:toNum(reactions?.recent_votes),
+        active_voter_identities:voters,
+        repeat_voter_identities:repeat,
+        repeat_voter_percent:voters?Math.round(repeat/voters*100):0,
+        new_accounts:accountsOn?toNum(members?.n):null
+      },
+      daily:timeline,
+      explanation:"Repeat voters are browser/account voting identities with "+
+        "votes recorded on at least two separate UTC dates within this period, "+
+        "not verified people or all returning site visitors."
+    });
+  }
   if (path === "/admin/api/analytics" && request.method === "GET") {
     const enhanced = await featureSchemaReady(env);
     const [reasons, categories] = await Promise.all([
