@@ -13,6 +13,8 @@
   const uploadButton=document.getElementById("member-avatar-upload-button");
   const removeButton=document.getElementById("member-avatar-remove");
   const save=document.getElementById("member-profile-save");
+  const leaderboardToggle=document.getElementById("member-leaderboard-visible");
+  const leaderboardStatus=document.getElementById("member-leaderboard-status");
   const glyphs=["⚖️","🚙","🚧","🛑","🚦","🏎️","👑","🦊"];
   let current=null;
   let selection=0;
@@ -47,6 +49,53 @@
   function announceUpdate(){
     window.dispatchEvent(new Event("vtor:profile-updated"));
   }
+  async function loadLeaderboardSetting(){
+    if(!leaderboardToggle || !leaderboardStatus)return;
+    leaderboardToggle.disabled=true;
+    leaderboardStatus.textContent="Checking leaderboard preference…";
+    try{
+      const data=await accounts.fetchAuthenticated("/api/account/leaderboard");
+      if(!data.ready){
+        leaderboardToggle.checked=false;
+        leaderboardStatus.textContent=data.message||"Leaderboard is not active yet.";
+        return;
+      }
+      leaderboardToggle.checked=data.visible===true;
+      leaderboardToggle.disabled=!readyForWrites || !current?.handle;
+      leaderboardStatus.textContent=current?.handle?
+        "Your profile "+(data.visible?"appears":"does not appear")+
+          " in the public standings.":
+        "Save a public username first to join the leaderboard.";
+    }catch(error){
+      leaderboardToggle.disabled=true;
+      leaderboardStatus.textContent=error?.message||"Unable to load leaderboard preference.";
+    }
+  }
+  leaderboardToggle?.addEventListener("change",async()=>{
+    const visible=leaderboardToggle.checked;
+    if(visible&&!window.confirm(
+      "Put your username, avatar and Jury XP on a PUBLIC leaderboard? "+
+      "Your email and individual votes will stay private. You can leave any time.")){
+      leaderboardToggle.checked=false;return;
+    }
+    leaderboardToggle.disabled=true;
+    leaderboardStatus.textContent="Updating your leaderboard preference…";
+    try{
+      const data=await accounts.fetchAuthenticated("/api/account/leaderboard",{
+        method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({visible})
+      });
+      leaderboardToggle.checked=data.visible===true;
+      leaderboardStatus.textContent=data.visible?
+        "You're in! Your public username, avatar and XP now appear in the standings.":
+        "You're out. Your profile is no longer listed on the leaderboard.";
+    }catch(error){
+      leaderboardToggle.checked=!visible;
+      leaderboardStatus.textContent=error?.message||"Could not update your preference.";
+    }finally{
+      leaderboardToggle.disabled=!readyForWrites||!current?.handle;
+    }
+  });
   function renderProfile(profile){
     current=profile||{handle:null,avatar_preset:0,avatar_url:null};
     selection=Number.isInteger(current.avatar_preset)?current.avatar_preset:0;
@@ -101,6 +150,7 @@
       busy(false);
       renderProfile(result.profile);
       message("Choose an avatar or photo, then save your profile. Author credit is always optional.");
+      await loadLeaderboardSetting();
     }catch(error){
       message((error?.message||"Profile couldn't load.")+" Use Retry loading profile to check again.");
       retry.hidden=false;
@@ -153,6 +203,7 @@
       const latest=await accounts.fetchAuthenticated("/api/account/profile");
       renderProfile(latest.profile||result.profile);
       message("Profile saved.");
+      await loadLeaderboardSetting();
       announceUpdate();
     }catch(error){message(error.message||"Unable to save profile.");}
     finally{busy(false);}
