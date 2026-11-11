@@ -185,10 +185,11 @@
     if(dashboardPanel)dashboardPanel.hidden=false;
     userName.textContent=user.email||"Signed-in juror";
     try{
-      const [me,posts,score]=await Promise.all([
+      const [me,posts,score,profileResult]=await Promise.all([
         accounts.fetchAuthenticated("/api/account/me"),
         accounts.fetchAuthenticated("/api/account/incidents"),
-        accounts.fetchAuthenticated("/api/account/xp")
+        accounts.fetchAuthenticated("/api/account/xp"),
+        accounts.fetchAuthenticated("/api/account/profile").catch(()=>({ready:false}))
       ]);
       if(current!==generation)return;
       if(dashboardPanel)renderDashboard(score);
@@ -234,6 +235,48 @@
               image.src=imageUrl;link.href=imageUrl;
             }catch{link.remove();}
           })();
+        }
+        const handle=profileResult?.ready?profileResult.profile?.handle:null;
+        if(handle){
+          const credit=document.createElement("label");
+          credit.className="owner-author-credit";
+          const check=document.createElement("input");
+          check.type="checkbox";
+          check.checked=Number(incident.show_author)===1;
+          const label=document.createElement("span");
+          label.textContent="Show @"+handle+" as the author on this incident";
+          const feedback=make("span","owner-hint","");
+          feedback.setAttribute("role","status");
+          credit.append(check,label);
+          check.addEventListener("change",async()=>{
+            const wantsCredit=check.checked;
+            if(wantsCredit&&!confirm(
+              "Show @"+handle+" publicly as the author of this incident? "+
+              "Visitors will also be able to see your profile avatar.")){
+              check.checked=false;return;
+            }
+            check.disabled=true;
+            feedback.textContent="Saving…";
+            try{
+              await accounts.fetchAuthenticated(
+                "/api/account/incidents/"+encodeURIComponent(incident.id)+"/credit",{
+                  method:"PATCH",headers:{"Content-Type":"application/json"},
+                  body:JSON.stringify({show_author:wantsCredit})
+                });
+              feedback.textContent=wantsCredit?
+                "Your username is now public on this incident.":
+                "This incident is now credited anonymously.";
+            }catch(error){
+              check.checked=!wantsCredit;
+              feedback.textContent=error.message||"Could not update author credit.";
+            }finally{check.disabled=false;}
+          });
+          card.append(credit,feedback);
+        }else if(profileResult?.ready){
+          const setup=make("a","owner-hint",
+            "Want public author credit? Set a username in My Public Profile.");
+          setup.href="#account-profile-panel";
+          card.append(setup);
         }
         card.append(manage);
         incidentList.append(card);
@@ -288,5 +331,6 @@
       historyStatus.textContent=error.message;linkButton.disabled=false;
     }
   });
+  window.addEventListener("vtor:profile-updated",()=>display());
   display();
 })();
