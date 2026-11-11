@@ -646,3 +646,79 @@ database migrations or additional services/secrets required.
 
 PWA install icons are generated from the repository's existing favicon,
 rather than introducing new licensing or branded assets.
+
+
+## Launch analytics and growth reporting (2026-11-10)
+
+### Already implemented in the code (no new database migration)
+The protected admin dashboard at `/admin/` now shows a new **Growth &
+engagement** section, backed by `GET /admin/api/growth?days=7|30|90`.
+Cloudflare Access authentication is required for every read. This endpoint
+queries the existing D1 `incidents`, `incident_media`, active votes
+(`votes_v4` when the funny-reaction migration is ready; otherwise
+`votes`), and `public_members` where activated. It reports:
+
+- Total submitted incidents, currently published cases, and current recorded
+  votes (all time). Permanent deletion will remove affected historical
+  records, so these are **retained-data totals**, not permanent lifetime
+  counters.
+- New submissions, new photo submissions, recorded vote counts, active
+  voter identities, repeat voter identities, and optionally new accounts
+  within 7, 30, or 90 UTC calendar days.
+- A daily trend of submissions vs. incident votes, with an accessible,
+  expandable full data table.
+
+**Precisely what the counts mean:** The same hashed guest browser identity
+or verified account voter identity counted on two or more **separate UTC
+dates** inside the selected interval qualifies as a repeat voter. This is
+not a unique-person metric, and it does not count passive return visits.
+Multiple browsers used anonymously may appear as distinct voting
+identities until the guest history is explicitly merged into an account.
+A site's traffic-to-submission conversion percentage cannot safely be
+inferred from this database alone.
+
+The growth endpoint is GET only, no new event tracking or visitor cookies,
+and uses existing `Cache-Control: no-store`. No admin-protected data is
+exposed to public endpoints. It is only queried when an administrator
+loads the dashboard or changes its time range, keeping costs predictable.
+
+### One-time Cloudflare setup (the operator must do this)
+Cloudflare Web Analytics is free and provides page-view/visitor statistics,
+referring websites, device types, countries and browser performance. It
+does NOT currently report UTM campaign parameters or accept custom events.
+
+1. In Cloudflare, open **Web Analytics**.
+2. Check whether `votethemofftheroad.com` is already listed. If so, use
+   that existing site. Otherwise select **Add a site**, choose the
+   proxied hostname `votethemofftheroad.com`, and confirm.
+3. For a Cloudflare-proxied hostname, leave **Automatic setup** enabled.
+   Cloudflare injects its beacon. You do **not** need to paste a separate
+   tracking token into GitHub or share an API secret here.
+4. Visit the public homepage and NH voting page, then check **Web Analytics**
+   for page activity, referring hostnames, and device types. Beacon blockers
+   can cause missing visits; do not treat traffic metrics as exact.
+5. In the private `/admin/` dashboard, compare **Growth & engagement**
+   actions with Web Analytics traffic as **separate** indicators.
+6. Share tracked `https://votethemofftheroad.com/nh/` links through Facebook
+   and other channels. Web Analytics can show external referrer hosts,
+   but **does not yet parse UTM tags**. Avoid claiming exact
+   per-campaign submission conversions.
+
+The site's `_headers` CSP was updated to permit the **specific**
+`https://static.cloudflareinsights.com` beacon host without weakening its
+existing frame, object, or Cloudflare Turnstile restrictions.
+
+### Release checks
+After GitHub merge and a successful Cloudflare deployment:
+- Admin Access denies guests at `/admin/api/growth?days=30`.
+- Admin shows correct 7/30/90-day metrics, 0-safe empty states, table
+  and daily bars. Malformed days (such as `365`) return HTTP 400.
+- Existing incident, report, category, and account security paths are
+  unchanged. The admin dashboard still works if Web Analytics is not enabled.
+- Verify that Cloudflare beacon requests are allowed by CSP and that
+  Web Analytics referrers populate after you enable it.
+
+Official references:
+- https://developers.cloudflare.com/web-analytics/get-started/
+- https://developers.cloudflare.com/web-analytics/faq/
+- https://developers.cloudflare.com/web-analytics/data-metrics/dimensions/
