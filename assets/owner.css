@@ -91,3 +91,27 @@
   .jury-profile-heading .btn{width:100%;text-align:center}
   .jury-profile-rank{padding:16px}
 }
+
+
+/* Optional public juror identity and per-incident privacy control. */
+.member-profile-label{display:block;margin:12px 0 6px;font-weight:850;font-size:13px}
+.member-profile-handle{display:flex;align-items:center;gap:4px;max-width:360px;border:2px solid #050505;border-radius:9px;background:#fffdf5;padding:0 11px;font-size:20px;font-weight:900}
+.member-profile-handle input{min-width:0;flex:1;padding:10px 2px;border:0!important;box-shadow:none!important;background:transparent;font:inherit}
+.member-profile-handle input:focus{outline:0}
+.member-profile-picker{display:grid;grid-template-columns:104px minmax(0,1fr);gap:20px;align-items:center;margin:20px 0}
+.member-profile-preview{width:104px;height:104px;display:flex;align-items:center;justify-content:center;overflow:hidden;border:4px solid #050505;border-radius:50%;background:#FFD200;font-size:49px}
+.member-profile-preview img{width:100%;height:100%;object-fit:cover;display:block}
+.member-profile-picker-content strong{display:block;margin-bottom:9px}
+.member-profile-presets{display:grid;grid-template-columns:repeat(8,minmax(30px,1fr));gap:7px;max-width:390px}
+.member-preset{aspect-ratio:1;border-radius:50%;border:2px solid #050505;background:#f5f1e1;font-size:clamp(17px,2.8vw,25px);cursor:pointer;padding:2px}
+.member-preset[aria-pressed="true"]{background:#FFD200;box-shadow:0 0 0 3px #FFD200}
+.member-preset:focus-visible{outline:3px solid #377bdb;outline-offset:3px}
+.member-profile-photo-actions{display:flex;gap:7px;flex-wrap:wrap;margin-top:14px}
+.member-profile-photo-actions button{font-size:12px;padding:9px 12px;min-height:40px}
+.owner-author-credit{display:flex;gap:9px;align-items:flex-start;font-size:13px;font-weight:800;line-height:1.4;margin:12px 0}
+.owner-author-credit input{width:19px;height:19px;accent-color:#050505;flex:0 0 auto;margin:0}
+@media(max-width:580px){
+ .member-profile-picker{grid-template-columns:minmax(0,1fr);gap:10px}
+ .member-profile-preview{width:90px;height:90px;font-size:40px}
+ .member-profile-presets{grid-template-columns:repeat(4,44px)}
+}
